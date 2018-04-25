@@ -9,14 +9,14 @@ function mobjsub(xi,Xi,hi,prior)
 	# this is the objective function for the m step for subject i (for computing the robust information matrix)
 	nparam = size(Xi,1)
 	nbetas = size(Xi,2)
-	
+
 	(betas,sigma) = unpackparams(prior,nparam,nbetas)
 
 	mui = Xi * betas;
 
  	# eq 7a from Roweis Gaussian cheat sheet
 
-	return (-nparam/2*log(2*pi) - 1/2 * log(det(sigma)) - 1/2 * ((xi-mui)' * inv(sigma) * (xi-mui) + trace(inv(sigma) * hi )) )[1] 
+	return (-nparam/2*log(2*pi) - 1/2 * log(det(sigma)) - 1/2 * ((xi-mui)' * inv(sigma) * (xi-mui) + trace(inv(sigma) * hi )) )[1]
 end
 
 
@@ -35,7 +35,7 @@ function testerrors(data,subs,x,X,h,betas,sigma,likfun)
 
 	if (all(diag(covmtx)[1:nbetas].>=0))
 		ses = sqrt(diag(covmtx)[1:nbetas])
-		z = abs(betas)./ses 
+		z = abs(betas)./ses
 		pvaluesa = 2*ccdf(Normal(0,1),abs(betas) ./ ses)
 		pvaluesa2 = 2*ccdf(TDist(df),abs(betas) ./ ses)
 		ses = ses * factor
@@ -52,7 +52,7 @@ function testerrors(data,subs,x,X,h,betas,sigma,likfun)
 	covmtx = emrobcovmtx(data,subs,x,X,h,betas,sigma,likfun)
 	if (all(diag(covmtx)[1:nbetas].>=0))
 		ses = sqrt(diag(covmtx)[1:nbetas])
-		z2 = abs(betas)./ses 
+		z2 = abs(betas)./ses
 		pvaluesc = 2*ccdf(Normal(0,1),abs(betas) ./ ses)
 		pvaluesc2 = 2*ccdf(TDist(df),abs(betas) ./ ses)
 		ses = ses * factor
@@ -73,14 +73,14 @@ end
 
 function emrobcovmtx(data,subs,x,X,h,betas,sigma,likfun)
   	# compute covariance on the group level model parameters using Eq 6
-    # from Oakes, J R Stat Soc B 1999 
+    # from Oakes, J R Stat Soc B 1999
 
-    # this version uses a huber/white robust ("sandwich") estimator 
+    # this version uses a huber/white robust ("sandwich") estimator
 
 	prior = packparams(betas,sigma)
 	nprior = length(prior)
 
-	h1 = ForwardDiff.hessian(newprior -> mobj(x,X,h,newprior),prior) 
+	h1 = ForwardDiff.hessian(newprior -> mobj(x,X,h,newprior),prior)
 	h2 = ForwardDiff.hessian(oldpriornewprior -> emobj(data,subs,x,X,likfun,oldpriornewprior),[prior;prior])[1:nprior,nprior+1:end]
 	B = sandwich(x,X,h,prior)
 	A = inv(h1+h2)
@@ -95,7 +95,7 @@ function loocvsamples(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=
 	nparam = size(X,1)
 
 	liks = zeros(nsub)
-	
+
 
 	print("Subject: ")
 
@@ -129,7 +129,7 @@ function loocvsamples(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=
 
 			a = eigfact(newsigma)
 			A = a[:vectors] * sqrt(diagm(a[:values]))
-	
+
 			datasub = data[data[:sub] .== subs[i],:]
 
 			ll = zeros(nsamples)
@@ -137,7 +137,7 @@ function loocvsamples(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=
 			for j = 1:nsamples
 				ll[j] = -likfun(newmu + A * samples[:,j], datasub)
 			end
-	
+
 			liks[i] = logsumexp(ll) - log(nsamples)
 		catch err
 	 		println(err)
@@ -178,7 +178,7 @@ function lmlsamples(betas, sigma, data,subs,X,likfun; nsamples=2000, samples = [
 
 	a = eigfact(sigma)
 	A = a[:vectors] * sqrt.(diagm(a[:values]))
-	
+
 	for i = 1:nsub
 		print(i,"..")
 		datasub = data[data[:sub] .== subs[i],:]
@@ -186,8 +186,8 @@ function lmlsamples(betas, sigma, data,subs,X,likfun; nsamples=2000, samples = [
 		for j = 1:nsamples
 			ll[j,i] = -likfun(mu[:,i] + A * samples[:,j,i], datasub)
 		end
-	end			
-	
+	end
+
 	ll = sum(log(sum(exp.(ll),1))) - nsub * log(nsamples)
 
 	return -ll
@@ -206,5 +206,3 @@ end
 #	maxiter
 #	quiet
 #end
-
-
