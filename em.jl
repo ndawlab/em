@@ -14,7 +14,7 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx =
 	nsub = size(X,3)
 	nparam = size(X,1)
 
-	if isempty(startx) 
+	if isempty(startx)
 		x = computemeans(X,betas)
 	else
 		x = startx
@@ -27,7 +27,7 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx =
 
 	while (true)
 		oldparams = newparams
-		(x, l, h) = estep(data,subs,x,X,betas,sigma,likfun,parallel=parallel) 
+		(x, l, h) = estep(data,subs,x,X,betas,sigma,likfun,parallel=parallel)
 		(betas, sigma) = mstep(x,X,h,sigma,full=full)
 		newparams = packparams(betas,sigma)
 
@@ -46,12 +46,12 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx =
 				println("sigma: ", round.(sigma,2))
 				#println("cv: ", round(sqrt(sigma)./betas,2))
 			end
-			#println("free energy: ", round(freeenergy(x,l,h,X,betas,sigma),6))
+			println("free energy: ", round(freeenergy(x,l,h,X,betas,sigma),6))
 			println("change: ", round.(abs.(newparams-oldparams)./oldparams,6))
-			println("max: ", round.(maximum(abs.(newparams-oldparams)./oldparams),6))
-		end	
+			println("max: ", round.(maximum(abs.((newparams-oldparams)./oldparams)),6))
+		end
 
-		if ((maximum(abs.(newparams-oldparams)./oldparams) < emtol) | (iter > maxiter))
+		if ((maximum(abs.((newparams-oldparams)./oldparams)) < emtol) | (iter > maxiter))
 			return(betas,sigma,x,l,h)
 		end
 	end
@@ -61,7 +61,7 @@ end
 
 function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 	nparam = size(X,1)
-	
+
 	mus = computemeans(X,betas)
 
 	# a little optimization for subject level bootstrap:
@@ -81,8 +81,8 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 
 	if (parallel)
 
-		# parallel version stores data in shared memory between workers
-		
+		# parallel version stores results in shared memory between workers
+
 		h = SharedArray{Float64}((nparam,nparam,nusub), pids=workers())
 		l = SharedArray{Float64}((nusub), pids=workers())
 		x = SharedArray{Float64}((nparam,nusub), pids=workers())
@@ -91,9 +91,9 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 			try  # errors in parallel code seem to disappear silently so this prints and throws them
 				sub = subsfit[i];
 				(l[i], x[:,i]) = optimizesubjectpython((x) -> gaussianprior(x,mus[:,i],sigma,data[data[:sub] .== sub,:],likfun), startx[:,i]);
-				
+
 				hess = y -> ForwardDiff.hessian((x) -> gaussianprior(x,mus[:,i],sigma,data[data[:sub] .== sub,:],likfun), y);
-	
+
 				h[:,:,i] = inv(hess(x[:,i]));
 			catch err
 	 			error(err)
@@ -101,19 +101,20 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 	 	end
 
 	else
+		# single CPU version
 
 		h = zeros(nparam,nparam,nusub)
 		l = zeros(nusub)
 		x = zeros(nparam,nusub)
-	
+
 		for i = 1:nusub
 			sub = subsfit[i]
 			print(i,"..")
-			
+
 			(l[i], x[:,i]) = optimizesubjectpython((x) -> gaussianprior(x,mus[:,i],sigma,data[data[:sub] .== sub,:],likfun), startx[:,i])
-		
+
 			hess = y -> ForwardDiff.hessian((x) -> gaussianprior(x,mus[:,i],sigma,data[data[:sub] .== sub,:],likfun), y)
-		
+
 			h[:,:,i] = inv(hess(x[:,i]))
 		end
 	end
@@ -180,12 +181,12 @@ end
 
 function emcovmtx(data,subs,x,X,h,betas,sigma,likfun)
   	# compute covariance on the group level model parameters using Eq 6
-    # from Oakes, J R Stat Soc B 1999 
+    # from Oakes, J R Stat Soc B 1999
 
 	prior = packparams(betas,sigma)
 	nprior = length(prior)
 
-	h1 = ForwardDiff.hessian(newprior -> mobj(x,X,h,newprior), prior) 
+	h1 = ForwardDiff.hessian(newprior -> mobj(x,X,h,newprior), prior)
 	h2 = ForwardDiff.hessian(oldpriornewprior -> emobj(data,subs,x,X,likfun,oldpriornewprior),[prior;prior])[1:nprior,nprior+1:end]
 
 	return inv(h1+h2)
@@ -230,7 +231,7 @@ function embscovmtxfast(data,subs,x,X,h,betas,sigma,likfun; full=false, nsamples
 	nprior = length(packparams(betas,sigma))
 	nbetas = size(X,2)
 	nparam = size(X,1)
- 
+
 	estimates = zeros(nprior,nsamples)
 
 	for i = 1:nsamples
@@ -244,7 +245,7 @@ function embscovmtxfast(data,subs,x,X,h,betas,sigma,likfun; full=false, nsamples
 		(newbetas,newsigma) = mstep(newx,newX,newh,sigma,full=full)
 
 		# comment the following two lines out to just use one M step
-		(newx,newh) = fakeestep(data,newsubs,newx,newX,newbetas,newsigma,likfun)
+		(newx,newh) = approxestep(data,newsubs,newx,newX,newbetas,newsigma,likfun)
 		(newbetas,newsigma) = mstep(newx,newX,newh,newsigma,full=full)
 
 		estimates[:,i] = packparams(newbetas,newsigma)
@@ -253,34 +254,50 @@ function embscovmtxfast(data,subs,x,X,h,betas,sigma,likfun; full=false, nsamples
 	return(StatsBase.cov(estimates'),estimates)
 end
 
-function fakeestep(data,subs,startx,X,betas,sigma,likfun)
+function approxestep(data,subs,startx,X,betas,sigma,likfun)
 
-	# this is a fake e step based on a Gauss/Newton approximation
+	# this is an approximate e step based on a Gauss/Newton approximation
 
 	nsub = size(X,3)
 	nparam = size(X,1)
-	
+
 	mus = computemeans(X,betas)
 
-	newh = zeros(nparam,nparam,nsub)
-	newx = zeros(nparam,nsub)
-	
+	newh = zeros(typeof(betas[1]),nparam,nparam,nsub)
+	newx = zeros(typeof(betas[1]),nparam,nsub)
+	newl = zeros(typeof(betas[1]),nsub)
+
 	for i = 1:nsub
 		sub = subs[i]
-	
-		gsub = ForwardDiff.gradient((x) -> likfun(x,data[data[:sub] .== sub,:]),startx[:,i]) - inv(sigma) * (mus[:,i] - startx[:,i])
-		hsub = ForwardDiff.hessian((x) -> likfun(x,data[data[:sub] .== sub,:]),startx[:,i]) + inv(sigma) 
-		
-		newx[:,i] = startx[:,i] - inv(hsub) * gsub
+
+		gsub = y -> ForwardDiff.gradient((x) -> likfun(x,data[data[:sub] .== sub,:]),y)
+		hsub = y -> ForwardDiff.hessian((x) -> likfun(x,data[data[:sub] .== sub,:]),y)
+
+		gstart = gsub(startx[:,i])  - inv(sigma) * (mus[:,i] - startx[:,i]);
+		hstart = hsub(startx[:,i])  + inv(sigma);
+
+		newx[:,i] = startx[:,i] - inv(hstart) * gstart
+
+		#gnext = gsub(newx[:,i])  - inv(sigma) * (mus[:,i] - newx[:,i])
+		#hnext = hsub(newx[:,i]) + inv(sigma);
+
+		#newx[:,i] = newx[:,i] - inv(hnext) * gnext
+
+		#deltax = newx[:,i] - startx[:,i]
+		#newl[i] = startl[i] + deltax' * gstart + 1/2 * deltax' * hstart * deltax
+		#newl[i] = likfun(newx[:,i],data[data[:sub] .== sub,:])
 
 		# note that h is the same everywhere under a 2nd order approximation, i.e. we don't extrapolate a different value for newh at newx vs startx
-		# though we could in principle use a third order derivative to do so 
+		# though we could in principle use a third order derivative to do so
 
-		newh[:,:,i] = inv(hsub)
+		newh[:,:,i] = inv(hstart)
+		#newh[:,:,i] = inv(hsub(newx[:,i]) + inv(sigma))
 	end
 
+	#return(newx,newl,newh)
 	return(newx,newh)
 end
+
 
 function emcontrast(betas,contrast,covmtx)
 	value = betas' * contrast
@@ -325,18 +342,23 @@ function emerrorsbsfast(data,subs,x,X,h,betas,sigma,likfun; full=false, nsamples
 end
 
 function mobj(x,X,h,prior)
-	# this is the objective function for the m step (for computing the information matrix)
+	# this is the objective function for the m step
+	# (for computing the information matrix)
+	# it consists of only the terms from the free energy that depend on the prior
+	# ie those that are maximized during the m step, and whose partial derivatives
+	# give the likelihood
+
 	nsub = size(X,3)
 	nbetas = size(X,2)
 	nparam = size(X,1)
-	
+
 	(betas,sigma) = unpackparams(prior,nparam,nbetas)
 
 	mu = computemeans(X,betas)
- 
+
  	# eq 7a from Roweis Gaussian cheat sheet
 
-	return -sum([-nparam/2*log(2*pi) - 1/2 * log(det(sigma)) - 1/2 * ((x[:,sub]-mu[:,sub])' * inv(sigma) * (x[:,sub]-mu[:,sub]) + trace(inv(sigma) * h[:,:,sub] )) for sub in 1:nsub])[1]
+	return -sum([-1/2 * log(det(sigma)) - 1/2 * ((x[:,sub]-mu[:,sub])' * inv(sigma) * (x[:,sub]-mu[:,sub]) + trace(inv(sigma) * h[:,:,sub] )) for sub in 1:nsub])[1]
 end
 
 function emobj(data,subs,startx,X,likfun,oldnewprior)
@@ -354,34 +376,13 @@ function emobj(data,subs,startx,X,likfun,oldnewprior)
 	nbetas = size(X,2)
 
 	(oldbetas,oldsigma) = unpackparams(oldprior,nparam,nbetas)
-	
-	# the following code (until return) is an approximation to:
-	#(newx,l,newh) = estep(data,subs,startx,X,oldbetas,oldsigma2,likfun,parallel=parallel)
 
-	mus = computemeans(X, oldbetas)
-	
-	newx = zeros(typeof(oldprior[1]),nparam,nsub)
-	newh = zeros(typeof(oldprior[1]),nparam,nparam,nsub);
-	
-	for i = 1:nsub
-		sub = subs[i]
-		
-		gsub = ForwardDiff.gradient((x) -> likfun(x,data[data[:sub] .== sub,:]),startx[:,i]) - inv(oldsigma) * (mus[:,i] - startx[:,i])
-		hsub = ForwardDiff.hessian((x) -> likfun(x,data[data[:sub] .== sub,:]),startx[:,i]) + inv(oldsigma) 
-		
-		newx[:,i] = startx[:,i] - inv(hsub) * gsub
+	(newx,newh) = approxestep(data,subs,startx,X,oldbetas,oldsigma,likfun)
 
-		# note that h is the same everywhere under a 2nd order approximation, i.e. we don't extrapolate a different value for newh at newx vs startx
-		# though we could in principle use a third order derivative to do so 
-
-		newh[:,:,i] = inv(hsub)
-	end
-		
 	return mobj(newx,X,newh,newprior)
 end
 
-
-#### model selection 
+#### model selection
 
 # aggregate / integrated measures
 
@@ -413,7 +414,7 @@ function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=false, 
 	nsub = size(X,3)
 
 	liks = zeros(nsub)
-	
+
 	print("Subject: ")
 
 	for i = 1:nsub
@@ -453,11 +454,11 @@ function heldoutsubject_laplace(mu, sigma, data, likfun; startx = mu)
 	nparam = length(mu)
 
 	(lik, params) = optimizesubjectpython((x) -> gaussianprior(x,mu,sigma,data,likfun), startx);
-	
+
 	hess = ForwardDiff.hessian((x) -> gaussianprior(x,mu,sigma,data,likfun),params);
 
 	lik = -nparam/2 * log(2*pi) + lik + log(det(hess))/2
-	
+
 	return(lik)
 end
 
@@ -468,27 +469,141 @@ function heldoutsubject_sample(mu, sigma, data, likfun; nsamples=1000)
 	for j = 1:nsamples
 		ll[j] = -likfun(samples[:,j], data)
 	end
-	
+
 	return(-log(sum(exp.(ll))) + log(nsamples))
 end
 
 
 # attempt to compute the free energy expression as given in Gharamani EM slides
-function freeenergy(x,l,h,X,betas,sigma) 
+function freeenergy(x,l,h,X,betas,sigma)
 	nsub = size(X,3)
 	nbetas = size(X,2)
 	nparam = size(X,1)
 
 	mu = computemeans(X,betas)
 
-	return (sum([(
-	# MVN Log L (from Wikipedia) terms not involving subject level params x
-	-nparam/2*log(2*pi) - 1/2 * log(det(sigma)) -
-	# MVN LogL term involving x, in expectation over x from Eq 7a in Roweis cheat sheet
-	1/2 * ((x[:,sub]-mu[:,sub])' * inv(sigma) * (x[:,sub]-mu[:,sub]) + trace(inv(sigma) * h[:,:,sub] )) +
-	# entropy of hidden variables (from Wikipedia)
-	nparam/2*log(2*pi*e) + 1/2 * log(det(h[:,:,sub])))
-	for sub in 1:nsub])[1]
-	# expected LL for the observations
-	- lml(x,l,h))
+	if (any([det(h[:,:,i]) for i in 1:nsub] .< 0) || det(sigma) < 0)
+		return NaN
+	else
+		return (sum([(
+	    # MVN Log L (from Wikipedia) terms not involving subject level params x
+	    -nparam/2*log(2*pi) - 1/2 * log(det(sigma)) -
+	    # MVN LogL term involving x, in expectation over x from Eq 7a in Roweis cheat sheet
+	    1/2 * ((x[:,sub]-mu[:,sub])' * inv(sigma) * (x[:,sub]-mu[:,sub]) + trace(inv(sigma) * h[:,:,sub] )) +
+	    # entropy of hidden variables (from Wikipedia)
+	    nparam/2*log(2*pi*e) + 1/2 * log(det(h[:,:,sub])))
+	    for sub in 1:nsub])[1]
+	    # expected LL for the observations
+	    - lml(x,l,h))
+    end
+end
+
+
+
+
+function emcovmtx2(data,subs,x,X,h,betas,sigma,likfun)
+  	# compute covariance on the group level model parameters using Eq 6
+    # from Oakes, J R Stat Soc B 1999
+
+	prior = packparams(betas,sigma)
+	nprior = length(prior)
+
+	h1 = ForwardDiff.hessian(newprior -> mobj2(x,X,h,newprior), prior)
+	h2 = ForwardDiff.hessian(oldpriornewprior -> emobj2(data,subs,x,l,X,likfun,oldpriornewprior),[prior;prior])[1:nprior,nprior+1:end]
+
+	return inv(h1+h2)
+end
+
+
+
+
+
+
+
+function emobj2(data,subs,startx,l,X,likfun,oldnewprior)
+	# this is the objective function for the m step with an e step preceding it
+	# (for computing the information matrix)
+	# this substitutes a single newton update as a differentiable approx to
+	# the optimization in the e step
+	# I have also combined old and new prior in a single vector so the mixed seond derivative can be computed as a sub-block of the hessian
+
+	len = Int(length(oldnewprior)/2)
+	oldprior = oldnewprior[1:len]
+	newprior = oldnewprior[len+1:end]
+	nsub = size(X,3)
+	nparam = size(X,1)
+	nbetas = size(X,2)
+
+	(oldbetas,oldsigma) = unpackparams(oldprior,nparam,nbetas)
+
+	(newx,newh) = fakeestep2(data,subs,startx,l,X,oldbetas,oldsigma,likfun)
+
+	return mobj2(newx,X,newh,newprior)
+end
+
+
+function fakeestep2(data,subs,startx,startl,X,betas,sigma,likfun)
+
+	# this is a fake e step based on a Gauss/Newton approximation
+
+	nsub = size(X,3)
+	nparam = size(X,1)
+
+	mus = computemeans(X,betas)
+
+	newh = zeros(typeof(betas[1]),nparam,nparam,nsub)
+	newx = zeros(typeof(betas[1]),nparam,nsub)
+	newl = zeros(typeof(betas[1]),nsub)
+
+	for i = 1:nsub
+		sub = subs[i]
+
+		gsub = y -> ForwardDiff.gradient((x) -> likfun(x,data[data[:sub] .== sub,:]),y)
+		hsub = y -> ForwardDiff.hessian((x) -> likfun(x,data[data[:sub] .== sub,:]),y)
+
+		gstart = gsub(startx[:,i])  - inv(sigma) * (mus[:,i] - startx[:,i]);
+		hstart = hsub(startx[:,i])  + inv(sigma);
+
+		newx[:,i] = startx[:,i] - inv(hstart) * gstart
+
+		#gnext = gsub(newx[:,i])  - inv(sigma) * (mus[:,i] - newx[:,i])
+		#hnext = hsub(newx[:,i]) + inv(sigma);
+
+		#newx[:,i] = newx[:,i] - inv(hnext) * gnext
+
+		#deltax = newx[:,i] - startx[:,i]
+		#newl[i] = startl[i] + deltax' * gstart + 1/2 * deltax' * hstart * deltax
+		#newl[i] = likfun(newx[:,i],data[data[:sub] .== sub,:])
+
+		# note that h is the same everywhere under a 2nd order approximation, i.e. we don't extrapolate a different value for newh at newx vs startx
+		# though we could in principle use a third order derivative to do so
+
+		newh[:,:,i] = inv(hstart)
+		#newh[:,:,i] = inv(hsub(newx[:,i]) + inv(sigma))
+	end
+
+	#return(newx,newl,newh)
+	return(newx,newh)
+end
+
+
+
+function mobj2(x,X,h,prior)
+	# this is the objective function for the m step
+	# (for computing the information matrix)
+	# it consists of only the terms from the free energy that depend on the prior
+	# ie those that are maximized during the m step, and whose partial derivatives
+	# give the likelihood
+
+	nsub = size(X,3)
+	nbetas = size(X,2)
+	nparam = size(X,1)
+
+	(betas,sigma) = unpackparams(prior,nparam,nbetas)
+
+	mu = computemeans(X,betas)
+
+ 	# eq 7a from Roweis Gaussian cheat sheet
+
+	return -sum([-1/2 * log(det(sigma)) - 1/2 * ((x[:,sub]-mu[:,sub])' * inv(sigma) * (x[:,sub]-mu[:,sub]) + trace(inv(sigma) * h[:,:,sub] )) for sub in 1:nsub])[1]
 end
