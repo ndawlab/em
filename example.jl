@@ -1,7 +1,7 @@
 # julia EM model fitting, Nathaniel Daw 9/2017
 
 
-###### setup 
+###### setup
 
 parallel = true # Run on multiple CPUs. If you are having trouble, set parallel = false: easier to debug
 full = false    # Maintain full covariance matrix (vs a diagional one) a the group level
@@ -19,8 +19,8 @@ using PyCall
 using Distributions
 using GLM
 
-# this loads the packages needed -- the @everywhere makes sure they 
-# available on all CPUs 
+# this loads the packages needed -- the @everywhere makes sure they
+# available on all CPUs
 @everywhere PyCall.@pyimport scipy.optimize as so
 
 # change this to where you keep the code
@@ -59,7 +59,7 @@ subs = 1:NS;
 
 # group level design matrix
 # you specify this as a cell array ("Any[ ]") of design matrices, one for each subject level parameter
-# these design matrices need not be the same. 
+# these design matrices need not be the same.
 # Here we have mean for both parameters ("ones[NS]") but include a covariate ("cov")
 # for the first parameter only.
 # If you have no covariates you can simplify this to designmatrix([ones(NS), ones(NS)])
@@ -77,19 +77,19 @@ sigma = [5.,1]; # these are variances, one for each subject level parameter. cou
 ##### estimation and standard errors
 
 # fit the model
-# (this takes: a data frame, a list of subjects, a group level design matrix, 
+# (this takes: a data frame, a list of subjects, a group level design matrix,
 #  starting group level betas, starting group-level variance or covariance, a likelihood function
 #  and some optional options)
 #
 # (return values: betas are the group level means
 #  sigma is the group level *variance* or covariance
 #  x is a matrix of per-subject parameters
-#  l is the per-subject negative log likelihoods 
-#  h is the *inverse* per subject hessians) 
+#  l is the per-subject negative log likelihoods
+#  h is the *inverse* per subject hessians)
 
 (betas,sigma,x,l,h) = em(data,subs,X,betas,sigma,qlik; emtol=emtol, parallel=parallel, full=full);
 
-# standard errors on the subject-level means, based on an asymptotic Gaussian approx 
+# standard errors on the subject-level means, based on an asymptotic Gaussian approx
 # (these may be inflated for small n)
 
 (standarderrors,pvalues,covmtx) = emerrors(data,subs,x,X,h,betas,sigma,qlik)
@@ -163,7 +163,7 @@ subs = 1:NS;
 
 # group level design matrix
 # you specify this as a cell array ("Any[ ]") of design matrices, one for each subject level parameter
-# these design matrices need not be the same. 
+# these design matrices need not be the same.
 # Here we have mean for both parameters ("ones[NS]") but include a covariate ("cov")
 # for the first parameter only.
 # If you have no covariates you can simplify this to designmatrix([ones(NS), ones(NS)])
@@ -182,19 +182,19 @@ sigma = [5.,5,5,5,1.0,5];
 ##### estimation and standard errors
 
 # fit the model
-# (this takes: a data frame, a list of subjects, a group level design matrix, 
+# (this takes: a data frame, a list of subjects, a group level design matrix,
 #  starting group level betas, starting group-level variance or covariance, a likelihood function
 #  and some optional options)
 #
 # (return values: betas are the group level means
 #  sigma is the group level *variance* or covariance
 #  x is a matrix of per-subject parameters
-#  l is the per-subject NLLS. 
-#  h is the *inverse* per subject hessians) 
+#  l is the per-subject NLLS.
+#  h is the *inverse* per subject hessians)
 
 (betas,sigma,x,l,h) = em(data,subs,X,betas,sigma,seqlik; emtol=emtol,parallel=parallel,full=full);
 
-# standard errors on the betas, based on an asymptotic Gaussian approx 
+# standard errors on the betas, based on an asymptotic Gaussian approx
 # (these may be inflated for small n)
 
 (standarderrors,pvalues,covmtx) = emerrors(data,subs,x,X,h,betas,sigma,seqlik)
