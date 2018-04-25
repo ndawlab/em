@@ -16,15 +16,15 @@ function optimizesubjectpython(likfun, startx)
 
 	return((a["fun"],a["x"])::Tuple{Float64,Array{Float64,1}})
 end
-	
+
 
 function gaussianprior(params,mu,sigma,data,likfun)
 	d = length(params)
 
     lp = -d/2 * log(2*pi) - 1/2 * log(det(sigma)) - 1/2 * (params - mu)' * inv(sigma) * (params - mu)
-	 
+
 	nll = likfun(params, data)
-	
+
 	return (nll - lp[1])
 end
 
@@ -47,14 +47,14 @@ function designmatrix(X)
 	nparam = length(X)
 	nsub = size(X[1],1)
 	nreg = sum([length(X[i][1,:]) for i in 1:nparam])
-	
+
 	X2 = zeros(nparam,nreg,nsub)
 	for i =1 :nsub
 		n = 1
 		for j = 1:nparam
    	  		l = length(X[j][i,:])
          	X2[j,n:(n+l-1),i] = X[j][i,:]
-         	n += l 
+         	n += l
      	end
 	end
 
@@ -78,7 +78,7 @@ function unpackparams(prior,nparam,nbetas)
 		sigmas = prior[nbetas+1:end]
 		sigma = zeros(typeof(prior[1]),nparam,nparam)
 		n = 1
-		
+
 		for i = 1:nparam
 			sigma[i,i] = sigmas[n]
 			n += 1
@@ -105,7 +105,7 @@ end
 
 # Use this instead of "max" in the bellman equation lookahead so that
 # gradients are better behaved
- 
+
 function softmaximum(a,b)
 	p=1/(1+exp(-5*(a-b)))
 	return(p * a + (1-p) * b)
