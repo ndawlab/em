@@ -1,4 +1,5 @@
 # julia EM model fitting, Nathaniel Daw 8/2019
+
 #### basic fitting routine
 
 function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=true)
@@ -12,21 +13,21 @@ end
 function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=true)
 	nsub = size(X,1)
 
-	if isempty(startx)
+	if isempty(startx) 
 		x = X * betas
 	else
 		x = startx
 	end
 
 	newparams = packparams(betas,sigma)
-
+	
 	betas = betas
 	sigma = sigma
 	iter = 0
 
 	while (true)
 		oldparams = newparams
-		(x, l, h) = estep(data,subs,x,X,betas,sigma,likfun,parallel=parallel)
+		(x, l, h) = estep(data,subs,x,X,betas,sigma,likfun,parallel=parallel) 
 		(betas, sigma) = mstep(x,X,h,sigma,full=full)
 
 		newparams = packparams(betas,sigma)
@@ -47,7 +48,7 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx =
 			println("free energy: ", round(freeenergy(x,l,h,X,betas,sigma),digits=6))
 			println("change: ", round.(abs.(newparams-oldparams)./oldparams,digits=6))
 			println("max: ", round.(maximum(abs.((newparams-oldparams)./oldparams)),digits=6))
-		end
+		end	
 
 		if ((maximum(abs.((newparams-oldparams)./oldparams)) < emtol) | (iter > maxiter))
 			return(betas,sigma,x,l,h)
@@ -65,7 +66,7 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 	if (parallel)
 
 		# parallel version stores results in shared memory between workers
-
+		
 		h = SharedArray{Float64,3}((nparam,nparam,nsub), pids=workers())
 		l = SharedArray{Float64,1}((nsub), pids=workers())
 		x = SharedArray{Float64,2}((nsub,nparam), pids=workers())
@@ -73,10 +74,10 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 		@sync @distributed for i = 1:nsub
 			try  # errors in parallel code seem to disappear silently so this prints and throws them
 				sub = subs[i];
-				(l[i], x[i,:]) = optimizesubjectpython((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,:]);
-
+				(l[i], x[i,:]) = optimizesubject((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,:]);
+				
 				hess = y -> ForwardDiff.hessian((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), y);
-
+	
 				h[:,:,i] = inv(hess(x[i,:]));
 			catch err
 	 			error(err)
@@ -84,20 +85,20 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 	 	end
 
 	else
-		# single CPU version
+		# single CPU version 
 
 		h = zeros(nparam,nparam,nsub)
 		l = zeros(nsub)
 		x = zeros(nsub,nparam)
-
+	
 		for i = 1:nsub
 			sub = subs[i]
 			print(i,"..")
-
-			(l[i], x[i,:]) = optimizesubjectpython((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,i])
-
+			
+			(l[i], x[i,:]) = optimizesubject((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,i])
+		
 			hess = y -> ForwardDiff.hessian((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), y)
-
+		
 			h[:,:,i] = inv(hess(x[i,:]))
 		end
 	end
@@ -179,14 +180,14 @@ function mobj(x,X,h,betas,sigma,nparam)
 
 	sigma = unpacksigma(sigma,nparam)
 	mu = X * betas
-
+ 
  	# eq 7a from Roweis Gaussian cheat sheet
 	return -sum([-1/2 * log(det(sigma)) - 1/2 * ((x[sub,:]-mu[sub,:])' * inv(sigma) * (x[sub,:]-mu[sub,:]) + tr(inv(sigma) * h[:,:,sub] )) for sub in 1:nsub])[1]
 end
 
 function entropyterm(data,subs,x,X,h,oldbetas,oldsigma,prior,likfun)
 	# this is the entropy term of the full likelihood, viewed as a function of the prior
-	# for information matrix calculation
+	# for information matrix calculation 
 	# retaining the terms that depend on the prior
 
 	nsub = size(X,1)
@@ -196,13 +197,13 @@ function entropyterm(data,subs,x,X,h,oldbetas,oldsigma,prior,likfun)
     # construct a Gaussian approx to the subject level evidence
 
     (likx,likh) = subjectlikelihood(data,subs,x,X,h,oldbetas,oldsigma,likfun)
-
+	
 	# use this to construct a Gaussian approximation to the subject level posterior
 	# given new top level params
 
 	(betas,sigma) = unpackparams(prior,nreg,nparam)
 	mu = X * betas
-
+ 
  	hnew = zeros(typeof(betas[1]),nparam,nparam,nsub)
 	xnew = zeros(typeof(betas[1]),nsub,nparam)
 
@@ -211,8 +212,8 @@ function entropyterm(data,subs,x,X,h,oldbetas,oldsigma,prior,likfun)
 
 		hnew[:,:,sub] = inv(inv(sigma) + inv(likh[:,:,sub]))
 		xnew[sub,:] = hnew[:,:,sub] * (inv(sigma) * mu[sub,:] + inv(likh[:,:,sub]) * likx[sub,:])
-	end
-
+	end	
+	
 	# finally the expression: log p(x | newbetas, newsigma, data) in expectation over x,h
 	# eq 7a from Roweis Gaussian cheat sheet
 	return -sum([-1/2 * log(det(hnew[:,:,sub])) - 1/2 * ((x[sub,:]-xnew[sub,:])' * inv(hnew[:,:,sub]) * (x[sub,:]-xnew[sub,:]) + tr(inv(hnew[:,:,sub]) * h[:,:,sub] )) for sub in 1:nsub])[1]
@@ -234,7 +235,7 @@ function subjectlikelihood(data,subs,x,X,h,betas,sigma,likfun)
 
 	for i = 1:nsub
 		sub = subs[i]
-
+ 
 		likh[:,:,sub] = inv(inv(h[:,:,sub]) - inv(sigma))
 
 		likx[sub,:] = likh[:,:,sub] * inv(h[:,:,sub]) * (x[sub,:] - h[:,:,sub] * inv(sigma) * mus[sub,:])
@@ -244,7 +245,7 @@ function subjectlikelihood(data,subs,x,X,h,betas,sigma,likfun)
 end
 
 
-#### model selection
+#### model selection 
 
 # aggregate / integrated measures
 
@@ -276,7 +277,7 @@ function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=false, 
 	nsub = size(X,1)
 
 	liks = zeros(nsub)
-
+	
 	print("Subject: ")
 
 	for i = 1:nsub
@@ -315,18 +316,18 @@ end
 function heldoutsubject_laplace(mu, sigma, data, likfun; startx = mu)
 	nparam = length(mu)
 
-	(lik, params) = optimizesubjectpython((x) -> gaussianprior(x,mu,sigma,data,likfun), startx);
-
+	(lik, params) = optimizesubject((x) -> gaussianprior(x,mu,sigma,data,likfun), startx);
+	
 	hess = ForwardDiff.hessian((x) -> gaussianprior(x,mu,sigma,data,likfun),params);
 
 	lik = -nparam/2 * log(2*pi) + lik + log(det(hess))/2
-
+	
 	return(lik)
 end
 
 # attempt to compute the free energy expression as given in Gharamani EM slides
 
-function freeenergy(x,l,h,X,betas,sigma)
+function freeenergy(x,l,h,X,betas,sigma) 
 	nsub = size(x,1)
 	nbetas = size(X,2)
 	nparam = size(x,2)
@@ -335,7 +336,7 @@ function freeenergy(x,l,h,X,betas,sigma)
 
 	if (any([det(h[:,:,i]) for i in 1:nsub] .< 0) || det(sigma) < 0)
 		return NaN
-	else
+	else 
 		return (sum([(
 	    # MVN Log L (from Wikipedia) terms not involving subject level params x
 	    -nparam/2*log(2*pi) - 1/2 * log(det(sigma)) -
