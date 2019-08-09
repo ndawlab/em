@@ -1,20 +1,26 @@
 # julia EM model fitting, Nathaniel Daw 8/2019
+
+function optimizesubject(likfun, startx)
+	a = optimize(likfun, startx, NewtonTrustRegion(); autodiff=:forward)
+
+	return(a.minimum,a.minimizer)
+end
+
 function optimizesubjectpython(likfun, startx)
-	# this uses python's optimization function which seems to work a little better than julia's
+	# this uses python's optimization function which used to work a little better than julia's
 	a = so.minimize(likfun, startx, method="L-BFGS-B", jac = (x->ForwardDiff.gradient(likfun,x)))
 	#println(a["message"])
 
 	return((a["fun"],a["x"])::Tuple{Float64,Array{Float64,1}})
 end
 
-
 function gaussianprior(params,mu,sigma,data,likfun)
 	d = length(params)
 
     lp = -d/2 * log(2*pi) - 1/2 * log(det(sigma)) - 1/2 * (params - mu)' * inv(sigma) * (params - mu)
-
+	 
 	nll = likfun(params, data)
-
+	
 	return (nll - lp[1])
 end
 
@@ -74,7 +80,7 @@ end
 
 # Use this instead of "max" in the bellman equation lookahead so that
 # gradients are better behaved
-
+ 
 function softmaximum(a,b)
 	p=1/(1+exp(-5*(a-b)))
 	return(p * a + (1-p) * b)
