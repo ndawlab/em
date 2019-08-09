@@ -19,7 +19,6 @@ function mobjsub(xi,Xi,hi,prior)
 	return (-nparam/2*log(2*pi) - 1/2 * log(det(sigma)) - 1/2 * ((xi-mui)' * inv(sigma) * (xi-mui) + trace(inv(sigma) * hi )) )[1]
 end
 
-
 function testerrors(data,subs,x,X,h,betas,sigma,likfun)
     nbetas = size(X,2)
     nsub = size(X,3)
