@@ -1,5 +1,4 @@
 # julia EM model fitting, Nathaniel Daw 8/2019
-
 function optimizesubjectpython(likfun, startx)
 	# this uses python's optimization function which seems to work a little better than julia's
 	a = so.minimize(likfun, startx, method="L-BFGS-B", jac = (x->ForwardDiff.gradient(likfun,x)))
