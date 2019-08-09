@@ -1,6 +1,7 @@
 # julia EM model fitting, Nathaniel Daw 8/2019
 
-###### setup
+
+###### setup 
 
 parallel = true # Run on multiple CPUs. If you are having trouble, set parallel = false: easier to debug
 full = false    # Maintain full covariance matrix (vs a diagional one) a the group level
@@ -13,21 +14,19 @@ if (parallel)
 end
 
 
-# this loads the packages needed -- the @everywhere makes sure they
-# available on all CPUs
+# this loads the packages needed -- the @everywhere makes sure they 
+# available on all CPUs 
 
 @everywhere using DataFrames
 @everywhere using SharedArrays
 @everywhere using ForwardDiff
-@everywhere using PyCall
+@everywhere using Optim
 @everywhere using LinearAlgebra       # for tr, diagonal
 @everywhere using StatsFuns           # logsumexp
 @everywhere using SpecialFunctions    # for erf
 @everywhere using Statistics          # for mean
 @everywhere using Distributions
 @everywhere using GLM
-
-@everywhere so = pyimport("scipy.optimize")
 
 # change this to where you keep the code
 @everywhere directory = "/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
@@ -98,19 +97,19 @@ sigma = [5., 1]
 ##### estimation and standard errors
 
 # fit the model
-# (this takes: a data frame, a list of subjects, a group level design matrix,
+# (this takes: a data frame, a list of subjects, a group level design matrix, 
 #  starting group level betas, starting group-level variance or covariance, a likelihood function
 #  and some optional options)
 #
 # (return values: betas are the group level means
 #  sigma is the group level *variance* or covariance
 #  x is a matrix of per-subject parameters
-#  l is the per-subject negative log likelihoods
-#  h is the *inverse* per subject hessians)
+#  l is the per-subject negative log likelihoods 
+#  h is the *inverse* per subject hessians) 
 
 (betas,sigma,x,l,h) = em(data,subs,X,betas,sigma,qlik; emtol=emtol, parallel=parallel, full=full);
 
-# standard errors on the subject-level means, based on an asymptotic Gaussian approx
+# standard errors on the subject-level means, based on an asymptotic Gaussian approx 
 # (these may be inflated for small n)
 
 (standarderrors,pvalues,covmtx) = emerrors(data,subs,x,X,h,betas,sigma,qlik)
