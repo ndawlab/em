@@ -1,5 +1,4 @@
 # julia EM model fitting, Nathaniel Daw 8/2019
-
 #### basic fitting routine
 
 function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=true)
