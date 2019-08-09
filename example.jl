@@ -1,6 +1,5 @@
 # julia EM model fitting, Nathaniel Daw 8/2019
 
-
 ###### setup
 
 parallel = true # Run on multiple CPUs. If you are having trouble, set parallel = false: easier to debug
