@@ -124,7 +124,6 @@ function seqlik(params,data)
 	return -lik
 end
 
-
 ####
 #### simulate a dataset corresponding to the above 3 likelihood functions
 
