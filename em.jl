@@ -2,7 +2,7 @@
 
 #### basic fitting routine
 
-function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=true)
+function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=false)
 	if full
 		return em(data,subs,X,betas,Matrix(Diagonal(sigma)),likfun; emtol=emtol, parallel=parallel, startx = startx, maxiter=maxiter, full=full, quiet=quiet)
 	else
@@ -10,7 +10,7 @@ function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, parallel=false, 
 	end
 end
 
-function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=true)
+function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=false)
 	nsub = size(X,1)
 
 	if isempty(startx) 
@@ -106,7 +106,7 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 	return(x,l,h)
 end
 
-function mstep(x,X,h,sigma;full=true)
+function mstep(x,X,h,sigma;full=false)
 	# this result from http://users.stat.umn.edu/~helwig/notes/mvlr-Notes.pdf
 	# gives same output as more complicated Huys procedure, when design matrix complies with these conditions
 
