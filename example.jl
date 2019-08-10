@@ -31,7 +31,7 @@ end
 # change this to where you keep the code
 @everywhere directory = "/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
 
-@everywhere include("$directory/emnew.jl");
+@everywhere include("$directory/em.jl");
 @everywhere include("$directory/commonnew.jl");
 @everywhere include("$directory/likfuns.jl")
 
