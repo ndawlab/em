@@ -12,12 +12,7 @@ end
 
 function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=false)
 	nsub = size(X,1)
-
-	if isempty(startx) 
-		x = X * betas
-	else
-		x = startx
-	end
+    nparam = size(betas,2)
 
 	newparams = packparams(betas,sigma)
 	
@@ -25,9 +20,27 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx =
 	sigma = sigma
 	iter = 0
 
+	# allocate memory for the subject-level results
+
+	if (parallel)
+		h = SharedArray{Float64,3}((nparam,nparam,nsub), pids=workers())
+		l = SharedArray{Float64,1}((nsub), pids=workers())
+		x = SharedArray{Float64,2}((nsub,nparam), pids=workers())
+	else
+		h = zeros(nparam,nparam,nsub)
+		l = zeros(nsub)
+		x = zeros(nsub,nparam)
+	end
+
+	if isempty(startx) 
+		x[:,:] = X * betas
+	else
+		x[:,:] = startx
+	end
+
 	while (true)
 		oldparams = newparams
-		(x, l, h) = estep(data,subs,x,X,betas,sigma,likfun,parallel=parallel) 
+		(x, l, h) = estep(data,subs,x,x,l,h,X,betas,sigma,likfun,parallel=parallel) 
 		(betas, sigma) = mstep(x,X,h,sigma,full=full)
 
 		newparams = packparams(betas,sigma)
@@ -58,7 +71,7 @@ end
 
 ### E and M steps
 
-function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
+function estep(data,subs,startx,x,l,h,X,betas,sigma,likfun; parallel=false)
 	nsub = length(subs)
 	mus = X * betas
 	nparam = size(mus,2)
@@ -67,10 +80,6 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 
 		# parallel version stores results in shared memory between workers
 		
-		h = SharedArray{Float64,3}((nparam,nparam,nsub), pids=workers())
-		l = SharedArray{Float64,1}((nsub), pids=workers())
-		x = SharedArray{Float64,2}((nsub,nparam), pids=workers())
-
 		@sync @distributed for i = 1:nsub
 			try  # errors in parallel code seem to disappear silently so this prints and throws them
 				sub = subs[i];
@@ -86,16 +95,12 @@ function estep(data,subs,startx,X,betas,sigma,likfun; parallel=false)
 
 	else
 		# single CPU version 
-
-		h = zeros(nparam,nparam,nsub)
-		l = zeros(nsub)
-		x = zeros(nsub,nparam)
 	
 		for i = 1:nsub
 			sub = subs[i]
 			print(i,"..")
 			
-			(l[i], x[i,:]) = optimizesubject((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,i])
+			(l[i], x[i,:]) = optimizesubject((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,:])
 		
 			hess = y -> ForwardDiff.hessian((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), y)
 		
@@ -124,6 +129,10 @@ function mstep(x,X,h,sigma;full=false)
 		println("Warning: sigma has negative determinant")
 	else
 		sigma = newsigma
+	end
+
+	if length(betas) == 1
+		betas = betas[1]
 	end
 
 	return(betas,sigma)
@@ -207,9 +216,7 @@ function entropyterm(data,subs,x,X,h,oldbetas,oldsigma,prior,likfun)
  	hnew = zeros(typeof(betas[1]),nparam,nparam,nsub)
 	xnew = zeros(typeof(betas[1]),nsub,nparam)
 
- 	for i = 1:nsub
-		sub = subs[i]
-
+ 	for sub = 1:nsub
 		hnew[:,:,sub] = inv(inv(sigma) + inv(likh[:,:,sub]))
 		xnew[sub,:] = hnew[:,:,sub] * (inv(sigma) * mu[sub,:] + inv(likh[:,:,sub]) * likx[sub,:])
 	end	
@@ -218,7 +225,6 @@ function entropyterm(data,subs,x,X,h,oldbetas,oldsigma,prior,likfun)
 	# eq 7a from Roweis Gaussian cheat sheet
 	return -sum([-1/2 * log(det(hnew[:,:,sub])) - 1/2 * ((x[sub,:]-xnew[sub,:])' * inv(hnew[:,:,sub]) * (x[sub,:]-xnew[sub,:]) + tr(inv(hnew[:,:,sub]) * h[:,:,sub] )) for sub in 1:nsub])[1]
 end
-
 
 function subjectlikelihood(data,subs,x,X,h,betas,sigma,likfun)
 	# this produces a Gaussian approximation to the subject level likelihood
@@ -233,9 +239,7 @@ function subjectlikelihood(data,subs,x,X,h,betas,sigma,likfun)
 
 	mus = X * betas
 
-	for i = 1:nsub
-		sub = subs[i]
- 
+	for sub = 1:nsub
 		likh[:,:,sub] = inv(inv(h[:,:,sub]) - inv(sigma))
 
 		likx[sub,:] = likh[:,:,sub] * inv(h[:,:,sub]) * (x[sub,:] - h[:,:,sub] * inv(sigma) * mus[sub,:])
@@ -257,7 +261,11 @@ function lml(x,l,h)
 	nparam = size(x,2)
 	nsub = size(x,1)
 
-	return -nparam/2 * log(2*pi) * nsub + sum(l) - sum([log(det(h[:,:,i])) for i in 1:nsub])/2
+	if any([det(h[:,:,i]) for i in 1:nsub] .< 0) 
+		return NaN
+	else
+		return -nparam/2 * log(2*pi) * nsub + sum(l) - sum([log(det(h[:,:,i])) for i in 1:nsub])/2
+	end
 end
 
 # aic & bic for group level parameters
@@ -273,7 +281,7 @@ end
 # model selection by leave one out cross validation (at the subject level)
 # this uses laplace approximation to the marginal likelihood for each subject
 
-function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=false, full=false)
+function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=false, full=false, maxiter=100)
 	nsub = size(X,1)
 
 	liks = zeros(nsub)
@@ -300,7 +308,7 @@ function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=false, 
 		end
 
 		try
-			(newbetas,newsigma,~,~,~) = em(data,loosubs,looX,betas,sigma,likfun; emtol=emtol, parallel=parallel, startx=loostartx, full=full, quiet=true)
+			(newbetas,newsigma,~,~,~) = em(data,loosubs,looX,betas,sigma,likfun; emtol=emtol, parallel=parallel, startx=loostartx, full=full, maxiter=maxiter, quiet=true)
 			newmu = newbetas' * X[i,:]
 
 			liks[i] = heldoutsubject_laplace(newmu,newsigma,data[data[:,:sub] .== sub,:],likfun;startx = startx[i,:])
@@ -324,6 +332,7 @@ function heldoutsubject_laplace(mu, sigma, data, likfun; startx = mu)
 	
 	return(lik)
 end
+
 
 # attempt to compute the free energy expression as given in Gharamani EM slides
 
@@ -349,3 +358,4 @@ function freeenergy(x,l,h,X,betas,sigma)
 	    - lml(x,l,h))
     end
 end
+
