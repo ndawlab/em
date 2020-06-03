@@ -2,6 +2,7 @@
 
 function optimizesubject(likfun, startx)
 	a = optimize(likfun, startx, NewtonTrustRegion(); autodiff=:forward)
+	#a = optimize(likfun, startx, LBFGS(); autodiff=:forward)
 
 	return(a.minimum,a.minimizer)
 end
@@ -26,15 +27,17 @@ end
 
 # utilities for packing and unpacking the top level betas and sigmas into a vector (for hessians etc)
 
-# utilities for packing and unpacking the top level betas and sigmas into a vector (for hessians etc)
-
 flatten(a::Array{T,1}) where T = any(x->isa(x,Array),a) ? flatten(vcat(map(flatten,a)...)) : a
 flatten(a::Array{T}) where T = reshape(a,prod(size(a)))
 flatten(a)=a
 
 function packparams(betas,sigma)
 	# we transpose b here and below so it reads out columnwise
-	return [vec(betas'); packsigma(sigma)]
+	if typeof(betas) == Float64
+		return([betas;packsigma(sigma)])
+	else
+		return [vec(betas'); packsigma(sigma)]
+	end
 end
 
 function packsigma(sigma)
