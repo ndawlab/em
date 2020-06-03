@@ -4,7 +4,7 @@
 ###### setup 
 
 parallel = true # Run on multiple CPUs. If you are having trouble, set parallel = false: easier to debug
-full = false    # Maintain full covariance matrix (vs a diagional one) a the group level
+full = false    # Maintain full covariance matrix (vs a diagional one) at the group level
 emtol = 1e-3    # stopping condition (relative change) for EM
 
 using Distributed
@@ -29,7 +29,8 @@ end
 @everywhere using GLM
 
 # change this to where you keep the code
-@everywhere directory = "/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
+@everywhere directory = "/mnt/c/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
+#@everywhere directory = "/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
 
 @everywhere include("$directory/em.jl");
 @everywhere include("$directory/common.jl");
@@ -71,10 +72,20 @@ end
 data = DataFrame(sub=s,c=c,r=r);
 subs = 1:NS;
 
-# group level design matrix
-# The new rule is that there is a single design matrix for all parameters
-# one column per predictor
-# here we have a mean (ones) and two covariates)
+# design matrix specifying the group level model
+# this is replicated once for each model parameter
+#
+# in particular for each subject-level parameter x_ij  (subject i, parameter j)
+#
+# x_ij ~ Normal(X beta_j, Sigma)
+#
+# thus X has a row for each subject and a column for each predictor
+# in the simple case, the only predictor is an intercept, X = ones(NS)
+# then beta_j specifies the group-level mean for parameter j
+#
+# but in this example we have two covariates that vary by subject
+# so x_ij = beta_1j + beta_2j * cov_i + beta_3j * cov2_i
+# and we infer the slopes beta for each parameter j as well as the intercept
 
 X = [ones(NS) cov cov2];
 
@@ -84,14 +95,20 @@ X = [ones(NS) cov cov2];
 
 # starting points for group level parameters
 # betas: one column for each parameter, one row for each regressor
+# make sure these are floats
+# note: for a single predictor you need a row vector
+# betas = [0. 0.];
+# and if there is also only a single model parameter, then betas is a scalar
+# betas = 0.
 
 betas = [0. 0; 0 0; 0 0]
 
-# note: for a single predictor you need a row vector
-# betas = [0. 0.];
 
-# sigma: one element for each parameter (this is really variance not SD)
+# sigma: one element starting variance for each model parameter (this is really variance not SD)
+# if there is only one model parameter it needs to be a length-one vector eg. sigma = [5.]
+
 sigma = [5., 1]
+
 
 
 ##### estimation and standard errors
@@ -101,9 +118,9 @@ sigma = [5., 1]
 #  starting group level betas, starting group-level variance or covariance, a likelihood function
 #  and some optional options)
 #
-# (return values: betas are the group level means
+# (return values: betas are the group level means and slopes
 #  sigma is the group level *variance* or covariance
-#  x is a matrix of per-subject parameters
+#  x is a matrix of MAP/empirical Bayes per-subject parameters
 #  l is the per-subject negative log likelihoods 
 #  h is the *inverse* per subject hessians) 
 
@@ -116,7 +133,7 @@ sigma = [5., 1]
 
 # another way to get a p value for a covariate, by omitting it from the model and regressing
 # this seems to work better when full=false
-# in general not super well motivated
+# in general not super well justified and can clearly be biased in some cases
 
 X2 = ones(NS);
 betas2 = [0. 0.];
@@ -144,3 +161,4 @@ iaic(x,l,h,betas,sigma)
 
 liks = loocv(data,subs,x,X,betas,sigma,qlik;emtol=emtol, parallel=parallel, full=full)
 sum(liks)
+
