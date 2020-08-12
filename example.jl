@@ -1,40 +1,35 @@
-# julia EM model fitting, Nathaniel Daw 8/2019
+# julia EM model fitting, Nathaniel Daw 8/2020
 
+####### NOTE NOTE NOTE: PARALLEL COMPUTATION IS NOW AUTOMATIC IN THIS VERSION 
+####### BUT TO RUN PARALLEL YOU MUT SET ENVIRONMENT VARIABLE JULIA_NUM_THREADS  
+####### BEFORE STARTING JULIA OR JUPYTER-NOTEBOOK
+
+## eg in linux/bash export JULIA_NUM_THREADS=`nproc`; julia
 
 ###### setup 
 
-parallel = true # Run on multiple CPUs. If you are having trouble, set parallel = false: easier to debug
 full = false    # Maintain full covariance matrix (vs a diagional one) at the group level
 emtol = 1e-3    # stopping condition (relative change) for EM
 
-using Distributed
-if (parallel)
-	# only run this once
-	addprocs()
-end
+# this loads the packages needed
 
-
-# this loads the packages needed -- the @everywhere makes sure they 
-# available on all CPUs 
-
-@everywhere using DataFrames
-@everywhere using SharedArrays
-@everywhere using ForwardDiff
-@everywhere using Optim
-@everywhere using LinearAlgebra       # for tr, diagonal
-@everywhere using StatsFuns           # logsumexp
-@everywhere using SpecialFunctions    # for erf
-@everywhere using Statistics          # for mean
-@everywhere using Distributions
-@everywhere using GLM
+using DataFrames
+using ForwardDiff
+using Optim
+using LinearAlgebra       # for tr, diagonal
+using StatsFuns           # for logsumexp
+using SpecialFunctions    # for erf
+using Statistics          # for mean
+using Distributions
+using GLM
 
 # change this to where you keep the code
-@everywhere directory = "/mnt/c/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
-#@everywhere directory = "/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
+directory = "/mnt/c/Users/daw/Dropbox (Princeton)/expts/julia em/git/em"
+# directory = "/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
 
-@everywhere include("$directory/em.jl");
-@everywhere include("$directory/common.jl");
-@everywhere include("$directory/likfuns.jl")
+include("$directory/emthreads.jl");
+include("$directory/common.jl");
+include("$directory/likfuns.jl")
 
 ###### Q learning example
 
@@ -43,22 +38,22 @@ end
 using Random
 Random.seed!(1234); # (for repeatability)
 
-NS = 100;
+NS = 500;
 NT = 200;
 NP = 2;
 
 params = zeros(NS,NP);
 
-cov = randn(NS); # simulated between-subeject variable, e.g. age or IQ
+cov = randn(NS); # simulated between-subject variable, e.g. age or IQ
 cov = cov .- mean(cov);
 
 cov2 = randn(NS); # simulated between-subeject variable, e.g. age or IQ
 cov2 = cov2 .- mean(cov2);
 
-
 # subject level parameters
-params[:,1] = 1 .+ 0.5 * randn(NS) + cov;
-params[:,2] = 0 .+ 1 * randn(NS) + cov2;
+
+params[:,1] = 1 .+ 0.5 * randn(NS) + cov; # mean 1, effect of cov
+params[:,2] = 0 .+ 1 * randn(NS) + cov2;  # mean 2, effect of cov2
 
 c = zeros(Int64,NS*NT);
 r = zeros(Int64,NS*NT);
@@ -80,12 +75,14 @@ subs = 1:NS;
 # x_ij ~ Normal(X beta_j, Sigma)
 #
 # thus X has a row for each subject and a column for each predictor
-# in the simple case, the only predictor is an intercept, X = ones(NS)
+# in the simplest case where the only predictor is an intercept, X = ones(NS)
 # then beta_j specifies the group-level mean for parameter j
 #
 # but in this example we have two covariates that vary by subject
 # so x_ij = beta_1j + beta_2j * cov_i + beta_3j * cov2_i
 # and we infer the slopes beta for each parameter j as well as the intercept
+#
+# so we have a design matrix with 3 columns, and a row per subject:
 
 X = [ones(NS) cov cov2];
 
@@ -94,22 +91,19 @@ X = [ones(NS) cov cov2];
 # X = ones(NS)
 
 # starting points for group level parameters
-# betas: one column for each parameter, one row for each regressor
+# betas: one column for each parameter, one row for each regressor (so here: 3 rows, 2 columns)
 # make sure these are floats
-# note: for a single predictor you need a row vector
-# betas = [0. 0.];
-# and if there is also only a single model parameter, then betas is a scalar
-# betas = 0.
+# note: if you have a single predictor you need a row vector (length: # params)
+# eg betas = [0. 0.];
+# and if there is also only a single model parameter and no covariates, then betas is a scalar
+# eg betas = 0.
 
-betas = [0. 0; 0 0; 0 0]
-
+startbetas = [0. 0; 0 0; 0 0]
 
 # sigma: one element starting variance for each model parameter (this is really variance not SD)
 # if there is only one model parameter it needs to be a length-one vector eg. sigma = [5.]
 
-sigma = [5., 1]
-
-
+startsigma = [5., 1]
 
 ##### estimation and standard errors
 
@@ -124,7 +118,7 @@ sigma = [5., 1]
 #  l is the per-subject negative log likelihoods 
 #  h is the *inverse* per subject hessians) 
 
-(betas,sigma,x,l,h) = em(data,subs,X,betas,sigma,qlik; emtol=emtol, parallel=parallel, full=full);
+(betas,sigma,x,l,h) = em(data,subs,X,startbetas,startsigma,qlik; emtol=emtol, full=full);
 
 # standard errors on the subject-level means, based on an asymptotic Gaussian approx 
 # (these may be inflated for small n)
@@ -136,9 +130,9 @@ sigma = [5., 1]
 # in general not super well justified and can clearly be biased in some cases
 
 X2 = ones(NS);
-betas2 = [0. 0.];
-sigma2 = [5., 1];
-(betas2,sigma2,x2,l2,h2) = em(data,subs,X2,betas2,sigma2,qlik; emtol=1e-5, parallel=parallel, full=full);
+startbetas2 = [0. 0.];
+startsigma2 = [5., 1];
+(betas2,sigma2,x2,l2,h2) = em(data,subs,X2,startbetas2,startsigma2,qlik; emtol=1e-5, full=full);
 
 lm(@formula(beta~cov+cov2),DataFrame(beta=x2[:,1],cov=cov,cov2=cov2))
 lm(@formula(beta~cov+cov2),DataFrame(beta=x2[:,2],cov=cov,cov2=cov2))
@@ -159,6 +153,6 @@ iaic(x,l,h,betas,sigma)
 # you can do paired t tests on these between models
 # these are also appropriate for SPM_BMS etc
 
-liks = loocv(data,subs,x,X,betas,sigma,qlik;emtol=emtol, parallel=parallel, full=full)
+liks = loocv(data,subs,x,X,betas,sigma,qlik;emtol=emtol, full=full)
 sum(liks)
 

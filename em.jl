@@ -1,16 +1,16 @@
-# julia EM model fitting, Nathaniel Daw 8/2019
+# julia EM model fitting, Nathaniel Daw 8/2020
 
 #### basic fitting routine
 
-function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=false)
+function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, startx = [], maxiter=100, quiet=false, full=false)
 	if full
-		return em(data,subs,X,betas,Matrix(Diagonal(sigma)),likfun; emtol=emtol, parallel=parallel, startx = startx, maxiter=maxiter, full=full, quiet=quiet)
+		return em(data,subs,X,betas,Matrix(Diagonal(sigma)),likfun; emtol=emtol, startx = startx, maxiter=maxiter, full=full, quiet=quiet)
 	else
-		return em(data,subs,X,betas,Diagonal(sigma),likfun; emtol=emtol, parallel=parallel, startx = startx, maxiter=maxiter, full=full, quiet=quiet)
+		return em(data,subs,X,betas,Diagonal(sigma),likfun; emtol=emtol, startx = startx, maxiter=maxiter, full=full, quiet=quiet)
 	end
 end
 
-function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx = [], maxiter=100, quiet=false, full=false)
+function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, startx = [], maxiter=100, quiet=false, full=false)
 	nsub = size(X,1)
     nparam = size(betas,2)
 
@@ -22,15 +22,9 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx =
 
 	# allocate memory for the subject-level results
 
-	if (parallel)
-		h = SharedArray{Float64,3}((nparam,nparam,nsub), pids=workers())
-		l = SharedArray{Float64,1}((nsub), pids=workers())
-		x = SharedArray{Float64,2}((nsub,nparam), pids=workers())
-	else
-		h = zeros(nparam,nparam,nsub)
-		l = zeros(nsub)
-		x = zeros(nsub,nparam)
-	end
+	h = zeros(nparam,nparam,nsub)
+	l = zeros(nsub)
+	x = zeros(nsub,nparam)
 
 	if isempty(startx) 
 		x[:,:] = X * betas
@@ -38,9 +32,13 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, parallel=false, startx =
 		x[:,:] = startx
 	end
 
+	if (Threads.nthreads() == 1)
+		@warn "Not running in parallel. Please set JULIA_NUM_THREADS environment variable & restart."
+	end
+
 	while (true)
 		oldparams = newparams
-		(x, l, h) = estep(data,subs,x,x,l,h,X,betas,sigma,likfun,parallel=parallel) 
+		estep!(data,subs,x,x,l,h,X,betas,sigma,likfun) 
 		(betas, sigma) = mstep(x,X,h,sigma,full=full)
 
 		newparams = packparams(betas,sigma)
@@ -71,44 +69,19 @@ end
 
 ### E and M steps
 
-function estep(data,subs,startx,x,l,h,X,betas,sigma,likfun; parallel=false)
+function estep!(data,subs,startx,x,l,h,X,betas,sigma,likfun)
 	nsub = length(subs)
 	mus = X * betas
 	nparam = size(mus,2)
-
-	if (parallel)
-
-		# parallel version stores results in shared memory between workers
 		
-		@sync @distributed for i = 1:nsub
-			try  # errors in parallel code seem to disappear silently so this prints and throws them
-				sub = subs[i];
-				(l[i], x[i,:]) = optimizesubject((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,:]);
+	Threads.@threads for i = 1:nsub
+		sub = subs[i];
+		(l[i], x[i,:]) = optimizesubject((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,:]);
 				
-				hess = y -> ForwardDiff.hessian((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), y);
-	
-				h[:,:,i] = inv(hess(x[i,:]));
-			catch err
-	 			error(err)
-	 		end
-	 	end
+		hess = y -> ForwardDiff.hessian((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), y);
 
-	else
-		# single CPU version 
-	
-		for i = 1:nsub
-			sub = subs[i]
-			print(i,"..")
-			
-			(l[i], x[i,:]) = optimizesubject((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), startx[i,:])
-		
-			hess = y -> ForwardDiff.hessian((x) -> gaussianprior(x,mus[i,:],sigma,data[data[:,:sub] .== sub,:],likfun), y)
-		
-			h[:,:,i] = inv(hess(x[i,:]))
-		end
-	end
-
-	return(x,l,h)
+		h[:,:,i] = inv(hess(x[i,:]));
+	 end
 end
 
 function mstep(x,X,h,sigma;full=false)
@@ -281,7 +254,7 @@ end
 # model selection by leave one out cross validation (at the subject level)
 # this uses laplace approximation to the marginal likelihood for each subject
 
-function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=false, full=false, maxiter=100)
+function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4, full=false, maxiter=100)
 	nsub = size(X,1)
 
 	liks = zeros(nsub)
@@ -308,7 +281,7 @@ function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4,parallel=false, 
 		end
 
 		try
-			(newbetas,newsigma,~,~,~) = em(data,loosubs,looX,betas,sigma,likfun; emtol=emtol, parallel=parallel, startx=loostartx, full=full, maxiter=maxiter, quiet=true)
+			(newbetas,newsigma,~,~,~) = em(data,loosubs,looX,betas,sigma,likfun; emtol=emtol, startx=loostartx, full=full, maxiter=maxiter, quiet=true)
 			newmu = newbetas' * X[i,:]
 
 			liks[i] = heldoutsubject_laplace(newmu,newsigma,data[data[:,:sub] .== sub,:],likfun;startx = startx[i,:])
