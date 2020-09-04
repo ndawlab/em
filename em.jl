@@ -44,8 +44,8 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, startx = [], maxiter=100
 		newparams = packparams(betas,sigma)
 
 		iter += 1
-
-		if (!quiet)
+		done =  ((maximum(abs.((newparams-oldparams)./oldparams)) < emtol) | (iter > maxiter))
+		if (!quiet & (done | (iter  % 10 == 0)))
 			if (@isdefined IJulia)
 				IJulia.clear_output()
 			end
@@ -61,7 +61,7 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, startx = [], maxiter=100
 			println("max: ", round.(maximum(abs.((newparams-oldparams)./oldparams)),digits=6))
 		end	
 
-		if ((maximum(abs.((newparams-oldparams)./oldparams)) < emtol) | (iter > maxiter))
+		if done
 			return(betas,sigma,x,l,h)
 		end
 	end
@@ -323,9 +323,11 @@ function freeenergy(x,l,h,X,betas,sigma)
 	    # MVN Log L (from Wikipedia) terms not involving subject level params x
 	    -nparam/2*log(2*pi) - 1/2 * log(det(sigma)) -
 	    # MVN LogL term involving x, in expectation over x from Eq 7a in Roweis cheat sheet
-	    1/2 * ((x[sub,:]-mu[sub,:])' * inv(sigma) * (x[sub,:]-mu[sub,:]) + tr(inv(sigma) * h[:,:,sub] )) +
+	    1/2 * ((x[sub,:]-mu[sub,:])' * inv(sigma) * (x[sub,:]-mu[sub,:]) + tr(inv(sigma) * h[:,:,sub] )) 
 	    # entropy of hidden variables (from Wikipedia)
-	    nparam/2*log(2*pi*exp(1)) + 1/2 * log(det(h[:,:,sub])))
+	    # these terms also appear in LML below but I think they belong twice
+	    + nparam/2*log(2*pi*exp(1)) + 1/2 * log(det(h[:,:,sub]))
+	    )
 	    for sub in 1:nsub])[1]
 	    # expected LL for the observations
 	    - lml(x,l,h))
