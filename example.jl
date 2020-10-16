@@ -1,41 +1,41 @@
 # julia EM model fitting, Nathaniel Daw 8/2020
 
 ####### NOTE NOTE NOTE: PARALLEL COMPUTATION IS NOW AUTOMATIC IN THIS VERSION 
-####### BUT TO RUN PARALLEL YOU MUT SET ENVIRONMENT VARIABLE JULIA_NUM_THREADS  
+####### BUT TO RUN PARALLEL YOU MUST SET ENVIRONMENT VARIABLE JULIA_NUM_THREADS  
 ####### BEFORE STARTING JULIA OR JUPYTER-NOTEBOOK
 
-## eg in linux/bash export JULIA_NUM_THREADS=`nproc`; julia
+## eg in linux/bash:
+###      export JULIA_NUM_THREADS=`nproc`; julia
 
 ###### setup 
 
 full = false    # Maintain full covariance matrix (vs a diagional one) at the group level
 emtol = 1e-3    # stopping condition (relative change) for EM
 
-# this loads the packages needed
+# to install dependencies run:
+# import Pkg
+# Pkg.add(["DataFrames", "ForwardDiff", "Optim", "LinearAlgebra", "StatsFuns", "SpecialFunctions", 
+#          "Statistics", "Distributions", "GLM"])
 
-using DataFrames
-using ForwardDiff
-using Optim
-using LinearAlgebra       # for tr, diagonal
-using StatsFuns           # for logsumexp
-using SpecialFunctions    # for erf
-using Statistics          # for mean
-using Distributions
-using GLM
-
+# load the code
 # change this to where you keep the code
 directory = "/mnt/c/Users/daw/Dropbox (Princeton)/expts/julia em/git/em"
 # directory = "/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
 
-include("$directory/emthreads.jl");
-include("$directory/common.jl");
-include("$directory/likfuns.jl")
+push!(LOAD_PATH,directory)
+using EM
+
+# this loads additional packages used in examples below
+
+using Statistics
+using Random
+using GLM
+using DataFrames
 
 ###### Q learning example
 
 # simulate some  qlearning data
 
-using Random
 Random.seed!(1234); # (for repeatability)
 
 NS = 500;
@@ -128,6 +128,7 @@ startsigma = [5., 1]
 # another way to get a p value for a covariate, by omitting it from the model and regressing
 # this seems to work better when full=false
 # in general not super well justified and can clearly be biased in some cases
+# but works well in practice as long as you avoid the bias cases (which are pretty obvious)
 
 X2 = ones(NS);
 startbetas2 = [0. 0.];
