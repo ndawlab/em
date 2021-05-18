@@ -47,13 +47,13 @@ params = zeros(NS,NP);
 cov = randn(NS); # simulated between-subject variable, e.g. age or IQ
 cov = cov .- mean(cov);
 
-cov2 = randn(NS); # simulated between-subeject variable, e.g. age or IQ
+cov2 = randn(NS); # simulated between-subject variable, e.g. age or IQ
 cov2 = cov2 .- mean(cov2);
 
 # subject level parameters
 
-params[:,1] = 1 .+ 0.5 * randn(NS) + cov; # mean 1, effect of cov
-params[:,2] = 0 .+ 1 * randn(NS) + cov2;  # mean 2, effect of cov2
+params[:,1] = 1 .+ 0.5 * randn(NS) + cov; # softmax  temp: mean 1, effect of cov
+params[:,2] = 0 .+ 1 * randn(NS) + cov2;  # learning rate: mean 0, effect of cov2
 
 c = zeros(Int64,NS*NT);
 r = zeros(Int64,NS*NT);
@@ -86,7 +86,7 @@ subs = 1:NS;
 
 X = [ones(NS) cov cov2];
 
-# note: for a single predictor omit the brackets to get a column vector
+# note: when you have no covariates (only intercepts) omit the brackets to get a column vector
 
 # X = ones(NS)
 
@@ -98,7 +98,7 @@ X = [ones(NS) cov cov2];
 # and if there is also only a single model parameter and no covariates, then betas is a scalar
 # eg betas = 0.
 
-startbetas = [0. 0; 0 0; 0 0]
+startbetas = [1. 0; 0 0; 0 0]
 
 # sigma: one element starting variance for each model parameter (this is really variance not SD)
 # if there is only one model parameter it needs to be a length-one vector eg. sigma = [5.]
@@ -122,6 +122,9 @@ startsigma = [5., 1]
 
 # standard errors on the subject-level means, based on an asymptotic Gaussian approx 
 # (these may be inflated for small n)
+# returns standard errors, pvalues, and a covariance matrix 
+# these are a vector ordered as though the betas matrix were read out column-wise
+# eg parameter 1, (intercept covariate covariate) then parameter 2
 
 (standarderrors,pvalues,covmtx) = emerrors(data,subs,x,X,h,betas,sigma,qlik)
 
@@ -136,7 +139,7 @@ startsigma2 = [5., 1];
 (betas2,sigma2,x2,l2,h2) = em(data,subs,X2,startbetas2,startsigma2,qlik; emtol=1e-5, full=full);
 
 lm(@formula(beta~cov+cov2),DataFrame(beta=x2[:,1],cov=cov,cov2=cov2))
-lm(@formula(beta~cov+cov2),DataFrame(beta=x2[:,2],cov=cov,cov2=cov2))
+lm(@formula(alpha~cov+cov2),DataFrame(alpha=x2[:,2],cov=cov,cov2=cov2))
 
 ## model selection/comparison/scoring
 
