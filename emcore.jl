@@ -1,8 +1,32 @@
-# julia EM model fitting, Nathaniel Daw 8/2020
+# julia EM model fitting, Nathaniel Daw 12/2021
 
-#### basic fitting routine
+#### basic fitting routines
+"""
+    em(data,subs,X,startbetas,startsigma,likfun; optional named arguments)
+Fit a model using expectation-maximization.
 
-function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, startx = [], maxiter=100, quiet=false, full=false)
+# Arguments
+- `data:DataFrame`: A data frame containing the data to be fit. Should have a column `sub` indicating the subject for each observation.
+- `subs`: a vector or range of subjects to be considered (e.g. unique(data.sub))
+- `X`: the design matrix, with a column per group-level predictor and a row per subject
+- `startbetas`: starting points for group-level coefficients (number of predictors x number of parameters)
+- `startsigma`: starting point for group-level variance vector or covariance matrix
+- `likfun`: likelihood function: takes a dataframe and a vector of parameters, returns negative log likelihood
+- `emtol=1e-3`: stopping point tolerance for relative change in parameters
+- `full=false`: use a full (vs. diagonal) group-level covariance
+- `maxiter=100`: maximum EM iterations
+- `quiet=false`: print updates
+- `startx=X*betas`: starting points for per-subject parameters
+
+# Returns
+returns `(betas,sigma,x,l,h)`
+- `betas`: the estimated group-level coefficients
+- `sigma`: the estimated group-level vector of variances (if `full=false`) or covariance matrix (if `full=true`)
+- `x`: the per-subject parameters
+- `l`: the per-subject likelihoods
+- `h`: the per-subject inverse Hessians
+"""
+function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=false, full=false)
 	if full
 		return em(data,subs,X,betas,Matrix(Diagonal(sigma)),likfun; emtol=emtol, startx = startx, maxiter=maxiter, full=full, quiet=quiet)
 	else
@@ -10,7 +34,7 @@ function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-4, startx = [], max
 	end
 end
 
-function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, startx = [], maxiter=100, quiet=false, full=false)
+function em(data,subs,X,betas,sigma,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=false, full=false)
 	nsub = size(X,1)
     nparam = size(betas,2)
 
@@ -67,6 +91,40 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-4, startx = [], maxiter=100
 	end
 end
 
+# experimental function to generate starting points for em()
+
+function eminits(data,subs,X,betas,sigma::Vector,likfun;nstarts=10)
+	nsub = size(X,1)
+    nparam = size(betas,2)
+
+	x = zeros(nsub,nparam)
+	l = zeros(nsub) .+ Inf
+
+	startx = zeros(nstarts,nparam)
+	for j = 1:nstarts
+		#startx[j,:] = rand(MvNormal(vec((X*betas)[1,:]),PDMats.PDMat((Matrix(Diagonal(sigma))),cholesky(Hermitian(Matrix(Diagonal(sigma)))))))
+		startx[j,:] = rand(MvNormal(vec((X*betas)[1,:]),Diagonal(sigma)))		
+	end
+
+	Threads.@threads for i = 1:nsub
+		sub = subs[i];
+		fitfun = (x) -> gaussianprior(x,(X*betas)[1,:],Diagonal(sigma),view(data,data.sub .== sub,:),likfun)
+
+		for j = 1:nstarts
+			(ll,xx) = optimizesubject(fitfun, startx[j,:]);		
+			if ll < l[i]
+				l[i] = ll
+				x[i,:] = xx
+			end
+		end
+	 end
+	nothing
+
+	return x
+end
+
+
+
 ### E and M steps
 
 function estep!(data,subs,startx,x,l,h,X,betas,sigma,likfun)
@@ -119,11 +177,14 @@ function mstep(x,X,h,sigma::Diagonal)
 	return(b,Diagonal(s))
 end
 
+#### functions related to error bars
 
 function emcovmtx(data,subs,x,X,h,betas,sigma,likfun)
   	# compute covariance on the group level model parameters using missing information
     # this version from http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.442.7750&rep=rep1&type=pdf
     # Tagare "A gentle introduction to the EM algorithm"
+	#
+	# this depends on derivatives only part of which I know analytically
 
     nsub = size(X,1)
     nparam = size(betas,2)
@@ -133,6 +194,7 @@ function emcovmtx(data,subs,x,X,h,betas,sigma,likfun)
 	prior = packparams(betas,sigma)
 
 	h1beta = inv(kron(inv(X'*X), sigma))
+	# (in principle this is surely also analytic)
 	h1sigma = ForwardDiff.hessian(newsigma -> mobj(x,X,h,betas,newsigma,nparam), packsigma(sigma))
 	h1 = zeros(length(prior),length(prior))
 	h1[1:nbetas,1:nbetas] = h1beta
@@ -144,6 +206,31 @@ function emcovmtx(data,subs,x,X,h,betas,sigma,likfun)
 	return inv(h1-h2)[1:nbetas,1:nbetas]
 end
 
+"""
+    emerrors(data,subs,x,X,h,betas,sigma,likfun)
+Compute approximate standard errors for the coefficients from a model estimated by `em()`
+
+# Arguments
+- `data::DataFrame`: the data
+- `subs`: a vector or range of subjects to be considered (e.g. unique(data.sub))
+- `x`: the per-subject parameter estimates from `em()`
+- `X`: the design matrix, with a column per group-level predictor and a row per subject
+- `x`: the per-subject inverse hessians from `em()`
+- `betas`: the estimated group-level coefficients from `em()`
+- `sigma`: the estimated group-level variance vector or covariance matrix from `em()`
+- `likfun`: the likelihood function
+
+# Returns
+returns `(ses,pvalues,covmtx)`
+- `ses`: standard errors per coefficient
+- `pvalues`: p values for the null hypothesis that each coefficient = 0
+- `covmtx`: the covariance matrix over the coeffients
+
+Note that though `betas` is a matrix of predictors x parameters, these coefficients are reordered 
+as a vector, `vec(betas')` for the purpose of this function. This determines the order of `ses`, 
+`pvalues` and the arrangement of `covmtx`. You can rebuild them back into the shape of `betas``
+using, e.g., `reshape(pvalues,size(betas'))'` 
+"""
 function emerrors(data,subs,x,X,h,betas,sigma,likfun)
     nsub = size(X,1)
     nreg = size(X,2)
@@ -231,10 +318,16 @@ function subjectlikelihood(data,subs,x,X,h,betas,sigma,likfun)
 end
 
 
-#### model selection 
+#### functions related to model selection 
 
 # aggregate / integrated measures
-
+"""
+    lml(x,l,h)
+Computes a vector of per-subject log-marginal likelihoods for a model previously fit with `em()` (giving subject level parameters 
+`x`, likelihoods `l`, and inverse hessians `h`). This marginalizes over the subject-level parameters using a Laplace approximation
+but note that it is conditional on (not marginalized over or otherwise correcte for overfitting due to) the estimated 
+group-level parameters.
+"""
 function lml(x,l,h)
 	# this computes the laplace approximation to the log marginal likelihood.
 	# this marginalizes over the subject level parameters but still
@@ -252,10 +345,41 @@ end
 
 # aic & bic for group level parameters
 
+"""
+    ibic(x,l,h,betas,sigma,ndata)
+
+Compute the iBIC (integrated BIC; Huys et al. 2011) measure of model fit aggregated over subjects for a model 
+previously fit by `em()``; this marginalizes subject level parameters using a Laplace approximation and then applies a BIC
+penalty for group-level parameters. 
+
+# Arguments
+- `x`: the per-subject parameters
+- `l`: the per-subject likelihoods
+- `h`: the per-subject inverse Hessians
+- `betas`: the group-level coefficients
+- `sigma`: the group-level variance vector or covariance matrix
+(... all returned from `em()`)
+- `ndata`: the total number of datapoints on which the model was estimated (aggregated over all subjects)
+"""
 function ibic(x,l,h,betas,sigma,ndata)
 	return(lml(x,l,h) + length(packparams(betas,sigma))/2 * log(ndata))
 end
 
+"""
+    iaic(x,l,h,betas,sigma,ndata)
+
+Compute the iAIC (integrated AIC; Huys et al. 2011) measure of model fit aggregated over subjects for a model 
+previously fit by `em()``; this marginalizes subject level parameters using a Laplace approximation and then applies a BIC
+penalty for group-level parameters. 
+	
+# Arguments
+- `x`: the per-subject parameters
+- `l`: the per-subject likelihoods
+- `h`: the per-subject inverse Hessians
+- `betas`: the group-level coefficients
+- `sigma`: the group-level variance vector or covariance matrix
+(... all returned from `em()`)
+"""
 function iaic(x,l,h,betas,sigma)
 	return(lml(x,l,h) + length(packparams(betas,sigma)))
 end
@@ -263,7 +387,24 @@ end
 # model selection by leave one out cross validation (at the subject level)
 # this uses laplace approximation to the marginal likelihood for each subject
 
-function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-4, full=false, maxiter=100)
+"""
+    loocv(data,subs,x,X,betas,sigma,likfun; optional named arguments)
+Compute per-subject leave-one-subject-out predictive likelihood scores under a model previously fit using `em()`.
+Scores are computed from cross-validated group-level parameters, with each subject left out, and using a Laplace
+approximation to marginalize the subject-level parameters. 
+
+# Arguments
+- `data::DataFrame`: The data
+- `subs`: vector or range of subjects
+- `x`: starting points for re-estimating per-subject parameters (typically, per-subject estimates from `em()`)
+- `X`: the design matrix
+- `betas`: starting points for re-estimating group-level coeffients (typically, from `em()`)
+- `sigma`: starting points for re-estimating group-level variances or covariance (typically, from `em()`)
+- `emtol=1e-3`: stopping point tolerance for relative change in parameters
+- `full=false`: use a full (vs. diagonal) group-level covariance
+-  `maxiter=100`: maximum EM iterations per-subject
+""" 
+function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-3, full=false, maxiter=100)
 	nsub = size(X,1)
 
 	liks = zeros(nsub)

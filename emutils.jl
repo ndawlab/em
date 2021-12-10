@@ -7,13 +7,19 @@ function optimizesubject(likfun, startx)
 	return(a.minimum,a.minimizer)
 end
 
-function optimizesubjectpython(likfun, startx)
-	# this uses python's optimization function which used to work a little better than julia's
-	a = so.minimize(likfun, startx, method="L-BFGS-B", jac = (x->ForwardDiff.gradient(likfun,x)))
-	#println(a["message"])
+# replace the above function with this one to use python optimizer
+# also need to uncomment code in EM.jl
+# and run single threaded (eg unset JULIA_NUM_THREADS)
+# because this is not thread safe
 
-	return((a["fun"],a["x"])::Tuple{Float64,Array{Float64,1}})
-end
+#function optimizesubject(likfun, startx)
+#	# this uses python's optimization function which used to work a little better than julia's
+#	# but is not thread safe
+#	a = so.minimize(likfun, startx, method="L-BFGS-B", jac = (x->ForwardDiff.gradient(likfun,x)))
+#	#println(a["message"])
+#
+#	return((a["fun"],a["x"])::Tuple{Float64,Array{Float64,1}})
+#end
 
 function gaussianprior(params,mu,sigma,data,likfun)
 	d = length(params)
