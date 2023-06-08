@@ -12,21 +12,15 @@
 full = false    # Maintain full covariance matrix (vs a diagional one) at the group level
 emtol = 1e-3    # stopping condition (relative change) for EM
 
-# to install dependencies run:
+# to install the package run:
 # import Pkg
-# Pkg.add(["DataFrames", "ForwardDiff", "Optim", "LinearAlgebra", "StatsFuns", "SpecialFunctions", 
-#          "Statistics", "Distributions", "GLM"])
+# Pkg.add(url="https://github.com/ndawlab/em.git/")
 
-# load the code
-# change this to where you keep the code
-directory = "/mnt/c/Users/daw/Dropbox (Princeton)/expts/julia em/git/em"
-# directory = "/users/ndaw/Dropbox (Princeton)/expts/julia em/git/em"
-
-push!(LOAD_PATH,directory)
+# load the package
 using EM
 
 # this loads additional packages used in examples below
-
+# if you don't have them installed, you can install them with Pkg.add("packagename")
 using Statistics
 using Random
 using GLM
