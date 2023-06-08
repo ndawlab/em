@@ -15,7 +15,7 @@ Fit a model using expectation-maximization.
 - `emtol=1e-3`: stopping point tolerance for relative change in parameters
 - `full=false`: use a full (vs. diagonal) group-level covariance
 - `maxiter=100`: maximum EM iterations
-- `quiet=false`: print updates
+- `quiet=10`: print updates every N iterations (or 0: never)
 - `startx=X*betas`: starting points for per-subject parameters
 
 # Returns
@@ -26,7 +26,7 @@ returns `(betas,sigma,x,l,h)`
 - `l`: the per-subject likelihoods
 - `h`: the per-subject inverse Hessians
 """
-function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=false, full=false)
+function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=10, full=false)
 	if full
 		return em(data,subs,X,betas,Matrix(Diagonal(sigma)),likfun; emtol=emtol, startx = startx, maxiter=maxiter, full=full, quiet=quiet)
 	else
@@ -34,7 +34,7 @@ function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-3, startx = [], max
 	end
 end
 
-function em(data,subs,X,betas,sigma,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=false, full=false)
+function em(data,subs,X,betas,sigma,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=10, full=false)
 	nsub = size(X,1)
     nparam = size(betas,2)
 
@@ -69,7 +69,7 @@ function em(data,subs,X,betas,sigma,likfun; emtol=1e-3, startx = [], maxiter=100
 
 		iter += 1
 		done =  ((maximum(abs.((newparams-oldparams)./oldparams)) < emtol) | (iter > maxiter))
-		if (!quiet & (done | (iter  % 10 == 0)))
+		if ((quiet > 0) && (done || (iter % quiet == 0)))
 			if isdefined(Main, :IJulia) && Main.IJulia.inited
 				Main.IJulia.clear_output()
 			end
@@ -215,7 +215,7 @@ Compute approximate standard errors for the coefficients from a model estimated 
 - `subs`: a vector or range of subjects to be considered (e.g. unique(data.sub))
 - `x`: the per-subject parameter estimates from `em()`
 - `X`: the design matrix, with a column per group-level predictor and a row per subject
-- `x`: the per-subject inverse hessians from `em()`
+- `h`: the per-subject inverse hessians from `em()`
 - `betas`: the estimated group-level coefficients from `em()`
 - `sigma`: the estimated group-level variance vector or covariance matrix from `em()`
 - `likfun`: the likelihood function
@@ -336,11 +336,14 @@ function lml(x,l,h)
 	nparam = size(x,2)
 	nsub = size(x,1)
 
-	if any([det(h[:,:,i]) for i in 1:nsub] .< 0) 
-		return NaN
-	else
-		return -nparam/2 * log(2*pi) * nsub + sum(l) - sum([log(det(h[:,:,i])) for i in 1:nsub])/2
+	incsub = [det(h[:,:,i]) > 0 for i in 1:nsub]
+
+	if any(.!incsub)
+		n = sum(.!incsub)
+		println("Warning: Omitting from LML $n subjects with non-invertible Hessian")
 	end
+
+	return -nparam/2 * log(2*pi) * nsub + sum(l) - sum([log(det(h[:,:,i])) for i in 1:nsub if incsub[i]])/2
 end
 
 # aic & bic for group level parameters
@@ -366,10 +369,10 @@ function ibic(x,l,h,betas,sigma,ndata)
 end
 
 """
-    iaic(x,l,h,betas,sigma,ndata)
+    iaic(x,l,h,betas,sigma)
 
 Compute the iAIC (integrated AIC; Huys et al. 2011) measure of model fit aggregated over subjects for a model 
-previously fit by `em()``; this marginalizes subject level parameters using a Laplace approximation and then applies a BIC
+previously fit by `em()``; this marginalizes subject level parameters using a Laplace approximation and then applies an AIC
 penalty for group-level parameters. 
 	
 # Arguments
@@ -388,7 +391,7 @@ end
 # this uses laplace approximation to the marginal likelihood for each subject
 
 """
-    loocv(data,subs,x,X,betas,sigma,likfun; optional named arguments)
+    loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-3, full=false, maxiter=100)
 Compute per-subject leave-one-subject-out predictive likelihood scores under a model previously fit using `em()`.
 Scores are computed from cross-validated group-level parameters, with each subject left out, and using a Laplace
 approximation to marginalize the subject-level parameters. 
@@ -402,7 +405,7 @@ approximation to marginalize the subject-level parameters.
 - `sigma`: starting points for re-estimating group-level variances or covariance (typically, from `em()`)
 - `emtol=1e-3`: stopping point tolerance for relative change in parameters
 - `full=false`: use a full (vs. diagonal) group-level covariance
--  `maxiter=100`: maximum EM iterations per-subject
+- `maxiter=100`: maximum EM iterations per-subject
 """ 
 function loocv(data,subs,startx,X,betas,sigma,likfun;emtol=1e-3, full=false, maxiter=100)
 	nsub = size(X,1)
@@ -466,21 +469,24 @@ function freeenergy(x,l,h,X,betas,sigma)
 
 	mu = X * betas
 
-	if (any([det(h[:,:,i]) for i in 1:nsub] .< 0) || det(sigma) < 0)
+	if (det(sigma) < 0)
 		return NaN
-	else 
-		return (sum([(
-	    # MVN Log L (from Wikipedia) terms not involving subject level params x
-	    -nparam/2*log(2*pi) - 1/2 * log(det(sigma)) -
-	    # MVN LogL term involving x, in expectation over x from Eq 7a in Roweis cheat sheet
-	    1/2 * ((x[sub,:]-mu[sub,:])' * inv(sigma) * (x[sub,:]-mu[sub,:]) + tr(inv(sigma) * h[:,:,sub] )) 
-	    # entropy of hidden variables (from Wikipedia)
-	    # these terms also appear in LML below but I think they belong twice
-	    + nparam/2*log(2*pi*exp(1)) + 1/2 * log(det(h[:,:,sub]))
-	    )
-	    for sub in 1:nsub])[1]
-	    # expected LL for the observations
-	    - lml(x,l,h))
-    end
+	end
+
+	incsub = [det(h[:,:,i]) > 0 for i in 1:nsub]
+
+	return (sum([(
+	# MVN Log L (from Wikipedia) terms not involving subject level params x
+	-nparam/2*log(2*pi) - 1/2 * log(det(sigma)) -
+	# MVN LogL term involving x, in expectation over x from Eq 7a in Roweis cheat sheet
+	1/2 * ((x[sub,:]-mu[sub,:])' * inv(sigma) * (x[sub,:]-mu[sub,:]) + tr(inv(sigma) * h[:,:,sub] )) 
+	# entropy of hidden variables (from Wikipedia)
+	# these terms also appear in LML below but I think they belong twice
+	+ nparam/2*log(2*pi*exp(1)) + 1/2 * log(det(h[:,:,sub]))
+	)
+	for sub in 1:nsub if incsub[sub]])[1]
+	# expected LL for the observations
+	- lml(x,l,h))
+    
 end
 
