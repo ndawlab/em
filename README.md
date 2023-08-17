@@ -12,4 +12,4 @@ It was supported in part by the National Center for Advancing Translational Scie
 You can install this (and the packages it depends on) from the github repository directly through the Julia package manager, e.g.
 
 import Pkg
-Pkg.add(url=\"https://github.com/ndawlab/em.git/
+Pkg.add(url=\"https://github.com/ndawlab/em.git/")
