@@ -2,7 +2,7 @@
 
 function optimizesubject(likfun, startx)
 	#a = optimize(likfun, startx, NewtonTrustRegion(); autodiff=:forward)
-	a = optimize(likfun, startx, LBFGS(); autodiff=:forward)
+	a = optimize(likfun, startx, LBFGS(); autodiff=AutoForwardDiff())
 
 	return(a.minimum,a.minimizer)
 end

@@ -178,13 +178,9 @@ function mstep(x,X,h,sigma::Diagonal)
 end
 
 #### functions related to error bars
-
 function emcovmtx(data,subs,x,X,h,betas,sigma,likfun)
   	# compute covariance on the group level model parameters using missing information
-    # this version from http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.442.7750&rep=rep1&type=pdf
-    # Tagare "A gentle introduction to the EM algorithm"
-	#
-	# this depends on derivatives only part of which I know analytically
+    # this version from Tagare "A gentle introduction to the EM algorithm" eq 4.1
 
     nsub = size(X,1)
     nparam = size(betas,2)
@@ -193,17 +189,50 @@ function emcovmtx(data,subs,x,X,h,betas,sigma,likfun)
 
 	prior = packparams(betas,sigma)
 
-	h1beta = inv(kron(inv(X'*X), sigma))
-	# (in principle this is surely also analytic)
-	h1sigma = ForwardDiff.hessian(newsigma -> mobj(x,X,h,betas,newsigma,nparam), packsigma(sigma))
+	# the first term is the information matrix of the complete data likelihood (the "observed information")
+	# it is block diagonal, with one block for the betas and one for the sigma
+	# these are standard MVN formulas
+
 	h1 = zeros(length(prior),length(prior))
-	h1[1:nbetas,1:nbetas] = h1beta
-	h1[nbetas+1:end,nbetas+1:end] = h1sigma
+	h1[1:nbetas,1:nbetas] = inv(kron(inv(X'*X), sigma))
+	h1[nbetas+1:end,nbetas+1:end] = informationmatrixsigma(sigma,nsub)
 	#h1 = h1 * (nsub-nreg) / nsub # bias correction
+
+	# the second term is the missing information, which we compute by numerical differentiation of the entropy term of the free energy
 
 	h2 = ForwardDiff.hessian(newprior -> entropyterm(data,subs,x,X,h,betas,sigma,newprior,likfun), prior)
 
 	return inv(h1-h2)[1:nbetas,1:nbetas]
+end
+
+function informationmatrixsigma(sigma, nsub)
+	# this computes the information matrix for the sigma parameters
+    nparam = size(sigma, 1)
+    sigmainv = inv(sigma)
+    
+    # Define row-wise unrolling rule (corresponding to packparams)
+	if isdiag(sigma)
+        unique_pairs = [(i, i) for i in 1:nparam] # Only diagonal elements]
+    else
+        unique_pairs = [(i, j) for i in 1:nparam for j in i:nparam] # Full upper-triangular
+    end
+    num_params = length(unique_pairs)
+    
+	# Pre-build the basis derivative matrices (V_k) for each unique parameter
+    V_matrices = map(unique_pairs) do (i, j)
+        V = zeros(nparam, nparam)
+        V[i, j] = 1.0
+        V[j, i] = 1.0 # Enforces symmetry for off-diagonals automatically
+        return V
+    end
+    
+    # Compute the Information Matrix using the trace formula
+    I_ΣΣ = [
+        (nsub / 2) * tr(sigmainv * V_matrices[row] * sigmainv * V_matrices[col])
+        for row in 1:num_params, col in 1:num_params
+    ]
+    
+    return I_ΣΣ
 end
 
 """
@@ -240,27 +269,11 @@ function emerrors(data,subs,x,X,h,betas,sigma,likfun)
 
 	ses = sqrt.([diag(covmtx)[i] .< 0 ? NaN : diag(covmtx)[i] for i in 1:length(diag(covmtx))])
 
-	# dof from helwing notes
+	# dof from helwig notes
 	pvalues = 2*ccdf.(TDist(nparam*(nsub - nreg - 1)), abs.(vec(betas')) ./ ses)
 	#pvalues = 2*ccdf.(Normal(0,1),abs.(vec(betas')) ./ ses)
 
 	return (ses,pvalues,covmtx)
-end
-
-function mobj(x,X,h,betas,sigma,nparam)
-	# this is the objective function for the m step (for computing the information matrix)
-	# it consists of only the terms from the free energy that depend on sigma
-	# (because I know the analytic part wrt betas)
-
-    nsub = size(X,1)
-    nreg = size(X,2)
-	nparam = size(betas,2)
-
-	sigma = unpacksigma(sigma,nparam)
-	mu = X * betas
- 
- 	# eq 7a from Roweis Gaussian cheat sheet
-	return -sum([-1/2 * log(det(sigma)) - 1/2 * ((x[sub,:]-mu[sub,:])' * inv(sigma) * (x[sub,:]-mu[sub,:]) + tr(inv(sigma) * h[:,:,sub] )) for sub in 1:nsub])[1]
 end
 
 function entropyterm(data,subs,x,X,h,oldbetas,oldsigma,prior,likfun)
@@ -294,6 +307,7 @@ function entropyterm(data,subs,x,X,h,oldbetas,oldsigma,prior,likfun)
 	# eq 7a from Roweis Gaussian cheat sheet
 	return -sum([-1/2 * log(det(hnew[:,:,sub])) - 1/2 * ((x[sub,:]-xnew[sub,:])' * inv(hnew[:,:,sub]) * (x[sub,:]-xnew[sub,:]) + tr(inv(hnew[:,:,sub]) * h[:,:,sub] )) for sub in 1:nsub])[1]
 end
+
 
 function subjectlikelihood(data,subs,x,X,h,betas,sigma,likfun)
 	# this produces a Gaussian approximation to the subject level likelihood
