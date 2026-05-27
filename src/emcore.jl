@@ -178,35 +178,9 @@ function mstep(x,X,h,sigma::Diagonal)
 end
 
 #### functions related to error bars
-function emcovmtx(data,subs,x,X,h,betas,sigma,likfun)
-  	# compute covariance on the group level model parameters using missing information
-    # this version from Tagare "A gentle introduction to the EM algorithm" eq 4.1
-
-    nsub = size(X,1)
-    nparam = size(betas,2)
-    nreg = size(X,2)
-    nbetas = prod(size(betas))
-
-	prior = packparams(betas,sigma)
-
-	# the first term is the information matrix of the complete data likelihood (the "observed information")
-	# it is block diagonal, with one block for the betas and one for the sigma
-	# these are standard MVN formulas
-
-	h1 = zeros(length(prior),length(prior))
-	h1[1:nbetas,1:nbetas] = inv(kron(inv(X'*X), sigma))
-	h1[nbetas+1:end,nbetas+1:end] = informationmatrixsigma(sigma,nsub)
-	#h1 = h1 * (nsub-nreg) / nsub # bias correction
-
-	# the second term is the missing information, which we compute by numerical differentiation of the entropy term of the free energy
-
-	h2 = ForwardDiff.hessian(newprior -> entropyterm(data,subs,x,X,h,betas,sigma,newprior,likfun), prior)
-
-	return inv(h1-h2)[1:nbetas,1:nbetas]
-end
 
 function informationmatrixsigma(sigma, nsub)
-	# this computes the information matrix for the sigma parameters
+	# this computes the sub block of the complete information matrix for the sigma parameters
     nparam = size(sigma, 1)
     sigmainv = inv(sigma)
     
@@ -235,19 +209,121 @@ function informationmatrixsigma(sigma, nsub)
     return I_ΣΣ
 end
 
+
+function missing_information(x, X, h, betas, sigma)
+	# this computes the missing information using a Laplace approx to the Louis (1982) formula
+	# this fully analytic form is pretty messy due to the unrolling of the sigma parameters
+	# (the autograd version is much easier to read but egregious)
+
+    nsub = size(X, 1)
+    nreg = size(X, 2)
+    nparam = size(x, 2)
+    
+    is_diagonal = (typeof(sigma) <: Diagonal)
+    ncov_params = is_diagonal ? nparam : Int(nparam * (nparam + 1) / 2)
+    ntheta = (nreg * nparam) + ncov_params
+    
+    I_missing = zeros(ntheta, ntheta)
+    sigma_inv = inv(sigma)
+    
+    for i in 1:nsub
+        w_hat = x[i, :]         
+        V_i = h[:, :, i]         
+        
+        mu_i = betas' * X[i, :]        
+        residual = w_hat - mu_i        
+        
+        J_i = zeros(ntheta, nparam)
+        row_idx = 1
+        
+        # 1. MEAN BLOCK (B)
+        for r in 1:nreg
+            for p in 1:nparam
+                J_i[row_idx, :] = X[i, r] .* sigma_inv[:, p]
+                row_idx += 1
+            end
+        end
+        
+        # 2. COVARIANCE BLOCK (Sigma)
+        if is_diagonal
+            # --- Diagonal Case ---
+            for j in 1:nparam
+                E_j = zeros(nparam, nparam)
+                E_j[j, j] = 1.0
+                J_i[row_idx, :] = sigma_inv * E_j * sigma_inv * residual
+                row_idx += 1
+            end
+        else
+            # --- Full Symmetric Case (Upper Triangular Row-by-Row) ---
+            for r_cov in 1:nparam
+                for c_cov in r_cov:nparam
+                    
+                    if r_cov == c_cov
+                        # Diagonal element: appears exactly once in the matrix
+                        E_jc = zeros(nparam, nparam)
+                        E_jc[r_cov, r_cov] = 1.0
+                        J_i[row_idx, :] = sigma_inv * E_jc * sigma_inv * residual
+                    else
+                        # Off-diagonal element: maps symmetrically to TWO slots
+                        # because altering the single parameter packs changes both coordinates!
+                        E_jc = zeros(nparam, nparam)
+                        E_jc[r_cov, c_cov] = 1.0
+                        E_jc[c_cov, r_cov] = 1.0
+                        
+                        J_i[row_idx, :] = sigma_inv * E_jc * sigma_inv * residual
+                    end
+                    
+                    row_idx += 1
+                end
+            end
+        end
+        
+        # 3. Apply Louis's Sandwich Formula
+        I_missing += J_i * V_i * J_i'
+    end
+    
+    return I_missing
+end
+
+
+function emcovmtx(x,X,h,betas,sigma)
+  	# compute covariance on the group level model parameters using missing information
+    # this version from Tagare "A gentle introduction to the EM algorithm" eq 4.1
+
+    nsub = size(X,1)
+    nbetas = prod(size(betas))
+
+	prior = packparams(betas,sigma)
+
+	# the first term is the information matrix of the complete data likelihood 
+	# (the "complete information")
+	# it is block diagonal, with one block for the betas and one for the sigma
+	# these are standard MVN formulas
+
+	h1 = zeros(length(prior),length(prior))
+	h1[1:nbetas,1:nbetas] = inv(kron(inv(X'*X), sigma))
+	h1[nbetas+1:end,nbetas+1:end] = informationmatrixsigma(sigma,nsub)
+	#h1 = h1 * (nsub-nreg) / nsub # bias correction
+
+	# the second term is the missing information
+	h2 = missing_information(x, X, h, betas, sigma)
+
+	return inv(h1-h2)[1:nbetas,1:nbetas]
+end
+
+
+
+
 """
-    emerrors(data,subs,x,X,h,betas,sigma,likfun)
+    emerrors(x,X,h,betas,sigma)
 Compute approximate standard errors for the coefficients from a model estimated by `em()`
 
 # Arguments
-- `data::DataFrame`: the data
-- `subs`: a vector or range of subjects to be considered (e.g. unique(data.sub))
 - `x`: the per-subject parameter estimates from `em()`
 - `X`: the design matrix, with a column per group-level predictor and a row per subject
 - `h`: the per-subject inverse hessians from `em()`
 - `betas`: the estimated group-level coefficients from `em()`
 - `sigma`: the estimated group-level variance vector or covariance matrix from `em()`
-- `likfun`: the likelihood function
 
 # Returns
 returns `(ses,pvalues,covmtx)`
@@ -260,12 +336,12 @@ as a vector, `vec(betas')` for the purpose of this function. This determines the
 `pvalues` and the arrangement of `covmtx`. You can rebuild them back into the shape of `betas``
 using, e.g., `reshape(pvalues,size(betas'))'` 
 """
-function emerrors(data,subs,x,X,h,betas,sigma,likfun)
+function emerrors(x,X,h,betas,sigma)
     nsub = size(X,1)
     nreg = size(X,2)
     nparam = size(betas,2)
 
- 	covmtx = emcovmtx(data,subs,x,X,h,betas,sigma,likfun)
+ 	covmtx = emcovmtx(x,X,h,betas,sigma)
 
 	ses = sqrt.([diag(covmtx)[i] .< 0 ? NaN : diag(covmtx)[i] for i in 1:length(diag(covmtx))])
 
@@ -274,61 +350,6 @@ function emerrors(data,subs,x,X,h,betas,sigma,likfun)
 	#pvalues = 2*ccdf.(Normal(0,1),abs.(vec(betas')) ./ ses)
 
 	return (ses,pvalues,covmtx)
-end
-
-function entropyterm(data,subs,x,X,h,oldbetas,oldsigma,prior,likfun)
-	# this is the entropy term of the full likelihood, viewed as a function of the prior
-	# for information matrix calculation 
-	# retaining the terms that depend on the prior
-
-	nsub = size(X,1)
-    nreg = size(X,2)
-    nparam = size(oldbetas,2)
-
-    # construct a Gaussian approx to the subject level evidence
-
-    (likx,likh) = subjectlikelihood(data,subs,x,X,h,oldbetas,oldsigma,likfun)
-	
-	# use this to construct a Gaussian approximation to the subject level posterior
-	# given new top level params
-
-	(betas,sigma) = unpackparams(prior,nreg,nparam)
-	mu = X * betas
- 
- 	hnew = zeros(typeof(betas[1]),nparam,nparam,nsub)
-	xnew = zeros(typeof(betas[1]),nsub,nparam)
-
- 	for sub = 1:nsub
-		hnew[:,:,sub] = inv(inv(sigma) + inv(likh[:,:,sub]))
-		xnew[sub,:] = hnew[:,:,sub] * (inv(sigma) * mu[sub,:] + inv(likh[:,:,sub]) * likx[sub,:])
-	end	
-	
-	# finally the expression: log p(x | newbetas, newsigma, data) in expectation over x,h
-	# eq 7a from Roweis Gaussian cheat sheet
-	return -sum([-1/2 * log(det(hnew[:,:,sub])) - 1/2 * ((x[sub,:]-xnew[sub,:])' * inv(hnew[:,:,sub]) * (x[sub,:]-xnew[sub,:]) + tr(inv(hnew[:,:,sub]) * h[:,:,sub] )) for sub in 1:nsub])[1]
-end
-
-
-function subjectlikelihood(data,subs,x,X,h,betas,sigma,likfun)
-	# this produces a Gaussian approximation to the subject level likelihood
-	# such that its Gaussian product with the prior gives the appropriate posterior
-	# we use this to compute the missing information under the Laplace approximation
-
-	nsub = size(X,1)
-    nparam = size(betas,2)
-
-	likh = zeros(typeof(betas[1]),nparam,nparam,nsub)
-	likx = zeros(typeof(betas[1]),nsub,nparam)
-
-	mus = X * betas
-
-	for sub = 1:nsub
-		likh[:,:,sub] = inv(inv(h[:,:,sub]) - inv(sigma))
-
-		likx[sub,:] = likh[:,:,sub] * inv(h[:,:,sub]) * (x[sub,:] - h[:,:,sub] * inv(sigma) * mus[sub,:])
-	end
-
-	return(likx,likh)
 end
 
 
@@ -357,7 +378,7 @@ function lml(x,l,h)
 		println("Warning: Omitting from LML $n subjects with non-invertible Hessian")
 	end
 
-	return -nparam/2 * log(2*pi) * nsub + sum(l) - sum([log(det(h[:,:,i])) for i in 1:nsub if incsub[i]])/2
+	return -nparam/2 * log(2*pi) * nsub + sum(l) - sum([logdet(h[:,:,i]) for i in 1:nsub if incsub[i]])/2
 end
 
 # aic & bic for group level parameters

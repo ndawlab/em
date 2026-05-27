@@ -117,10 +117,10 @@ startsigma = [5., 1]
 # standard errors on the subject-level means, based on an asymptotic Gaussian approx 
 # (these may be inflated for small n)
 # returns standard errors, pvalues, and a covariance matrix 
-# these are a vector ordered as though the betas matrix were read out column-wise
-# eg parameter 1, (intercept covariate covariate) then parameter 2
+# these are a vector ordered as though the betas matrix were read out row-wise
+# eg param 1 intercept, param 2 intercept, param 1 covariate 1, param 2 covariate 1...
 
-(standarderrors,pvalues,covmtx) = emerrors(data,subs,x,X,h,betas,sigma,qlik)
+(standarderrors,pvalues,covmtx) = emerrors(x,X,h,betas,sigma)
 
 # another way to get a p value for a covariate, by omitting it from the model and regressing
 # this seems to work better when full=false
