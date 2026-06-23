@@ -21,14 +21,17 @@ end
 #	return((a["fun"],a["x"])::Tuple{Float64,Array{Float64,1}})
 #end
 
-function gaussianprior(params,mu,sigma,data,likfun)
+function gaussianprior(params, mu, inv_sigma, logdet_sigma, data, likfun)
 	d = length(params)
-
-    lp = -d/2 * log(2*pi) - 1/2 * log(det(sigma)) - 1/2 * (params - mu)' * inv(sigma) * (params - mu)
-	 
+	diff = params - mu
+	quad = dot(diff, inv_sigma, diff)
+	lp = -d/2 * log(2*pi) - 0.5 * logdet_sigma - 0.5 * quad
 	nll = likfun(params, data)
-	
-	return (nll - lp[1])
+	return nll - lp
+end
+
+function gaussianprior(params, mu, sigma, data, likfun)
+	return gaussianprior(params, mu, inv(sigma), logdet(sigma), data, likfun)
 end
 
 # utilities for packing and unpacking the top level betas and sigmas into a vector (for hessians etc)

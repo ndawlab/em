@@ -1,12 +1,12 @@
-# julia EM model fitting, Nathaniel Daw 8/2020
+# julia EM model fitting example, Nathaniel Daw 6/2026
 
-####### NOTE NOTE NOTE: PARALLEL COMPUTATION IS NOW AUTOMATIC IN THIS VERSION 
-####### BUT TO RUN PARALLEL YOU MUST SET ENVIRONMENT VARIABLE JULIA_NUM_THREADS  
+####### TO RUN MULTITHREADED YOU MUST SET ENVIRONMENT VARIABLE JULIA_NUM_THREADS<br> 
 ####### BEFORE STARTING JULIA OR JUPYTER-NOTEBOOK
 
-## eg in linux/bash:
-###      export JULIA_NUM_THREADS=`nproc`; julia
+# eg in linux/bash:
+#      export JULIA_NUM_THREADS=\`nproc\`; julia
 
+# or just run julia with --threads=auto
 ###### setup 
 
 full = false    # Maintain full covariance matrix (vs a diagional one) at the group level
@@ -32,7 +32,7 @@ using DataFrames
 
 Random.seed!(1234); # (for repeatability)
 
-NS = 500;
+NS = 100;
 NT = 200;
 NP = 2;
 
@@ -101,56 +101,62 @@ startsigma = [5., 1]
 
 ##### estimation and standard errors
 
-# fit the model
-# (this takes: a data frame, a list of subjects, a group level design matrix, 
-#  starting group level betas, starting group-level variance or covariance, a likelihood function
-#  and some optional options)
-#
-# (return values: betas are the group level means and slopes
-#  sigma is the group level *variance* or covariance
-#  x is a matrix of MAP/empirical Bayes per-subject parameters
-#  l is the per-subject negative log likelihoods 
-#  h is the *inverse* per subject hessians) 
+# Define the EM Model (data, subjects, design matrix and likelihood function)
+model = EMModel(data, subs, X, qlik)
 
-(betas,sigma,x,l,h) = em(data,subs,X,startbetas,startsigma,qlik; emtol=emtol, full=full);
+# Fit the model
+# (Returns an EMFit structure containing: betas, sigma, x, l, h, and the model)
+fit = em(model; startbetas=startbetas, startsigma=startsigma, emtol=emtol, full=full)
+fit.betas # ground truth would be [1 0 ; 1 0; 0 1] so this is close
 
-# standard errors on the subject-level means, based on an asymptotic Gaussian approx 
+# Standard errors on the subject-level means, based on an asymptotic Gaussian approx 
 # (these may be inflated for small n)
-# returns standard errors, pvalues, and a covariance matrix 
-# these are a vector ordered as though the betas matrix were read out row-wise
+# these can be pretty-printed but when accessed are a vector ordered as 
+# though the betas matrix were read out row-wise
 # eg param 1 intercept, param 2 intercept, param 1 covariate 1, param 2 covariate 1...
 
-(standarderrors,pvalues,covmtx) = emerrors(x,X,h,betas,sigma)
+# here they match ground truth:
+# cov1 (2nd row) is significant for temperature beta
+# & cov2 (3rd row) is significant for learning rate alpha
+errs = emerrors(fit; reg_names=["Intercept", "Covariate1", "Covariate2"], param_names=["SoftmaxTemp", "LearnRate"])
+
 
 # another way to get a p value for a covariate, by omitting it from the model and regressing
 # this seems to work better when full=false
 # in general not super well justified and can clearly be biased in some cases
 # but works well in practice as long as you avoid the bias cases (which are pretty obvious)
-
 X2 = ones(NS);
 startbetas2 = [0. 0.];
 startsigma2 = [5., 1];
-(betas2,sigma2,x2,l2,h2) = em(data,subs,X2,startbetas2,startsigma2,qlik; emtol=1e-5, full=full);
+model2 = EMModel(data, subs, X2, 2, qlik)
+fit2 = em(model2; startbetas=startbetas2, startsigma=startsigma2, emtol=1e-5, full=full);
 
-lm(@formula(beta~cov+cov2),DataFrame(beta=x2[:,1],cov=cov,cov2=cov2))
-lm(@formula(alpha~cov+cov2),DataFrame(alpha=x2[:,2],cov=cov,cov2=cov2))
+display(lm(@formula(beta~cov+cov2),DataFrame(beta=fit2.x[:,1],cov=cov,cov2=cov2)))
+display(lm(@formula(alpha~cov+cov2),DataFrame(alpha=fit2.x[:,2],cov=cov,cov2=cov2)))
+# again the first covariate is significant for beta and the second for alpha
 
 ## model selection/comparison/scoring
 
-# laplace approximation to the aggregate log marginal likelihood of the whole dataset
+# Laplace approximation to the aggregate log marginal likelihood of the whole dataset
 # marginalized over the individual params
+ll1 = lml(fit)
+println("Integrated Log Marginal Likelihood (LML): ", ll1)
 
-ll1 = lml(x,l,h)
+# to compare these between models you need to correct for the group level free parameters
+# either aic or bic (this is Quentin Huys' IBIC or IAIC, i.e. the subject level
+# params are marginalized by laplace approx, and aggregated, and the group level
+# params are corrected by AIC or BIC)
 
-# to compare these between models you need to correct for the group level free parameters, either aic or bic
-
-ibic(x,l,h,betas,sigma,NS*NT)
-iaic(x,l,h,betas,sigma)
+println("iBIC: ", ibic(fit, NS*NT))
+println("iAIC: ", iaic(fit))
 
 # or by computing unbiased per subject marginal likelihoods via cross validation.
 # you can do paired t tests on these between models
 # these are also appropriate for SPM_BMS etc
+liks = loocv(fit; emtol=emtol, full=full)
+println("LOOCV sum: ", sum(liks))
 
-liks = loocv(data,subs,x,X,betas,sigma,qlik;emtol=emtol, full=full)
-sum(liks)
+# note that iaic does an excellent job of predicting the aggregate held out likelihood
+# but importantly these are per subject scores that you can compare in paired tests
+# across models as per Stephan et al. random effects model comparison
 
