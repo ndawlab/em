@@ -434,6 +434,9 @@ function loocv(f::EMFit; emtol=1e-3, full=false, maxiter=100)
 			loosubs = m.subs[2:end]
 			looX = m.X[2:end,:]
 			loostartx = f.x[2:end,:]
+        elseif (i==m.nsub)
+            loosubs = m.subs[1:end-1]
+            looX = m.X[1:end-1,:]
 			loostartx = f.x[1:end-1,:]
 		else
 			loosubs = [m.subs[1:i-1];m.subs[i+1:end]]
