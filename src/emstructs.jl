@@ -16,6 +16,8 @@ Structure to hold inputs and dimensions needed to fit a hierarchical model using
 - `nsub::Int`: The number of subjects (computed automatically).
 - `nreg::Int`: The number of regressors (computed automatically).
 - `likfun::Function`: The subject-level likelihood function.
+- `reg_names::Union{Vector{String}, Nothing}`: Names of the regressors (used for printing).
+- `param_names::Union{Vector{String}, Nothing}`: Names of the parameters (used for printing).
 """
 struct EMModel
     data::DataFrame
@@ -25,24 +27,18 @@ struct EMModel
     nsub::Int
     nreg::Int
     likfun::Function
+    reg_names::Union{Vector{String}, Nothing}
+    param_names::Union{Vector{String}, Nothing}
 end
 
-# Outer constructors to handle vectors and convert element types
-function EMModel(data::DataFrame, subs::AbstractVector{<:Any}, X::AbstractMatrix{<:Real}, nparam::Int, likfun::Function)
-    return EMModel(data, subs, Matrix{Float64}(X), nparam, length(subs), size(X, 2), likfun)
+# Outer constructors for EMModel supporting vector/matrix X and keyword-based reg_names/param_names
+function EMModel(data::DataFrame, subs::AbstractVector, X::AbstractVecOrMat, nparam::Int, likfun::Function; reg_names=nothing, param_names=nothing)
+    X_mat = X isa AbstractVector ? reshape(Float64.(X), :, 1) : Matrix{Float64}(X)
+    return EMModel(data, subs, X_mat, nparam, length(subs), size(X_mat, 2), likfun, reg_names, param_names)
 end
 
-function EMModel(data::DataFrame, subs::AbstractVector{<:Any}, X::AbstractVector{<:Real}, nparam::Int, likfun::Function)
-    return EMModel(data, subs, reshape(X, :, 1), nparam, length(subs), 1, likfun)
-end
-
-# Backward-compatible constructors without nparam
-function EMModel(data::DataFrame, subs::AbstractVector{<:Any}, X::AbstractMatrix{<:Real}, likfun::Function)
-    return EMModel(data, subs, X, 0, likfun)
-end
-
-function EMModel(data::DataFrame, subs::AbstractVector{<:Any}, X::AbstractVector{<:Real}, likfun::Function)
-    return EMModel(data, subs, X, 0, likfun)
+function EMModel(data::DataFrame, subs::AbstractVector, X::AbstractVecOrMat, likfun::Function; reg_names=nothing, param_names=nothing)
+    return EMModel(data, subs, X, 0, likfun; reg_names=reg_names, param_names=param_names)
 end
 
 """
@@ -88,6 +84,84 @@ function Base.iterate(fit::EMFit, state)
     end
 end
 
+function Base.show(io::IO, mime::MIME"text/plain", fit::EMFit)
+    nreg, nparam = size(fit.betas)
+    nsub = fit.model.nsub
+    
+    println(io, "EM model estimation results:")
+    println(io, "--------------------------------------------------------")
+    println(io, "Subjects: ", nsub)
+    println(io, "Regressors: ", nreg)
+    println(io, "Parameters: ", nparam)
+    println(io, "--------------------------------------------------------")
+    
+    # Process regressor and parameter names
+    reg_names = fit.model.reg_names !== nothing ? copy(fit.model.reg_names) : ["Reg $i" for i in 1:nreg]
+    param_names = fit.model.param_names !== nothing ? copy(fit.model.param_names) : ["Param $j" for j in 1:nparam]
+    if length(reg_names) < nreg
+        append!(reg_names, ["Reg $i" for i in (length(reg_names)+1):nreg])
+    end
+    if length(param_names) < nparam
+        append!(param_names, ["Param $j" for j in (length(param_names)+1):nparam])
+    end
+    
+    function truncate_str(s, n)
+        length(s) > n ? s[1:n-3] * "..." : s
+    end
+
+    function print_limited_matrix(mat::AbstractMatrix, row_names::Vector{String}, col_names::Vector{String}; max_rows=6, max_cols=6)
+        r, c = size(mat)
+        
+        # Print headers
+        show_c = min(c, max_cols)
+        @printf(io, "%-12s", "")
+        for j in 1:show_c
+            @printf(io, " %-11s", truncate_str(col_names[j], 11))
+        end
+        if c > show_c
+            @printf(io, " %-11s", "...")
+        end
+        println(io)
+        
+        # Print rows
+        show_r = min(r, max_rows)
+        for i in 1:show_r
+            @printf(io, "%-12s", truncate_str(row_names[i], 11) * ":")
+            for j in 1:show_c
+                @printf(io, " %-11.4f", mat[i, j])
+            end
+            if c > show_c
+                @printf(io, " %-11s", "...")
+            end
+            println(io)
+        end
+        if r > show_r
+            @printf(io, "%-12s", "...")
+            for j in 1:show_c
+                @printf(io, " %-11s", "...")
+            end
+            if c > show_c
+                @printf(io, " %-11s", "...")
+            end
+            println(io)
+        end
+    end
+
+    println(io, "Group-level Coefficients (betas):")
+    print_limited_matrix(fit.betas, reg_names, param_names)
+    
+    println(io)
+    println(io, "Group-level Covariance (sigma):")
+    print_limited_matrix(fit.sigma, param_names, param_names)
+    
+    println(io)
+    println(io, "Subject-level results:")
+    println(io, "  x: ", nsub, " x ", nparam, " subject-level parameters")
+    @printf(io, "  l: %d subject-level negative log-likelihoods (sum: %.4f)\n", nsub, sum(fit.l))
+    println(io, "  h: ", nsub, " x ", nparam, " x ", nparam, " subject-level inverse Hessians")
+    println(io, "--------------------------------------------------------")
+end
+
 """
     EMErrors(ses, pvalues, covmtx, fit, reg_names, param_names)
 
@@ -98,8 +172,6 @@ Represents post-estimation standard errors, p-values, and covariances of the gro
 - `pvalues::Vector{Float64}`: p-values for the null hypothesis that each coefficient = 0.
 - `covmtx::Matrix{Float64}`: The covariance matrix over the coefficients.
 - `fit::EMFit`: Reference to the parent model fit object.
-- `reg_names::Union{Vector{String}, Nothing}`: Names of the regressors (used for printing).
-- `param_names::Union{Vector{String}, Nothing}`: Names of the parameters (used for printing).
 
 Supports 3-element iteration protocol for backward compatibility destructuring:
 ```julia
@@ -112,8 +184,6 @@ struct EMErrors
     pvalues::Vector{Float64}
     covmtx::Matrix{Float64}
     fit::EMFit
-    reg_names::Union{Vector{String}, Nothing}
-    param_names::Union{Vector{String}, Nothing}
 end
 
 # Implement iteration protocol for EMErrors (destructuring into 3-tuple)
@@ -135,8 +205,8 @@ function Base.show(io::IO, mime::MIME"text/plain", errs::EMErrors)
     nreg, nparam = size(betas)
     
     # Set default regressor and parameter names if not provided
-    reg_names = errs.reg_names !== nothing ? copy(errs.reg_names) : ["Reg $i" for i in 1:nreg]
-    param_names = errs.param_names !== nothing ? copy(errs.param_names) : ["Param $j" for j in 1:nparam]
+    reg_names = errs.fit.model.reg_names !== nothing ? copy(errs.fit.model.reg_names) : ["Reg $i" for i in 1:nreg]
+    param_names = errs.fit.model.param_names !== nothing ? copy(errs.fit.model.param_names) : ["Param $j" for j in 1:nparam]
     
     # Ensure they are of correct lengths, if they were custom-supplied but wrong size
     if length(reg_names) < nreg

@@ -1,6 +1,6 @@
 name = "EM"
 uuid = "26e51405-4595-4b17-bfcf-9d8ddef1665b"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["ndaw "]
 
 [deps]

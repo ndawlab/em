@@ -27,9 +27,9 @@ function emerrors(x,X,h,betas,sigma; reg_names=nothing, param_names=nothing)
 		Matrix{Float64}(sigma)
 	end
 
-	dummy_model = EMModel(DataFrame(), 1:nsub, X_f64, nparam, () -> ())
+	dummy_model = EMModel(DataFrame(), 1:nsub, X_f64, nparam, () -> (); reg_names=reg_names, param_names=param_names)
 	dummy_fit = EMFit(betas_f64, s_sigma, x_f64, zeros(nsub), h_f64, dummy_model)
-	return emerrors(dummy_fit; reg_names=reg_names, param_names=param_names)
+	return emerrors(dummy_fit)
 end
 
 function lml(x,l,h)

@@ -1,6 +1,6 @@
 # julia EM model fitting example, Nathaniel Daw 6/2026
 
-####### TO RUN MULTITHREADED YOU MUST SET ENVIRONMENT VARIABLE JULIA_NUM_THREADS<br> 
+####### TO RUN MULTITHREADED YOU MUST SET ENVIRONMENT VARIABLE JULIA_NUM_THREADS
 ####### BEFORE STARTING JULIA OR JUPYTER-NOTEBOOK
 
 # eg in linux/bash:
@@ -101,25 +101,17 @@ startsigma = [5., 1]
 
 ##### estimation and standard errors
 
-# Define the EM Model (data, subjects, design matrix and likelihood function)
-model = EMModel(data, subs, X, qlik)
+# Define the EM Model (data, subjects, design matrix, nparam, and likelihood function)
+model = EMModel(data, subs, X, 2, qlik; reg_names=["Intercept", "Cov1", "Cov2"], param_names=["Temp", "LR"])
 
 # Fit the model
 # (Returns an EMFit structure containing: betas, sigma, x, l, h, and the model)
 fit = em(model; startbetas=startbetas, startsigma=startsigma, emtol=emtol, full=full)
-fit.betas # ground truth would be [1 0 ; 1 0; 0 1] so this is close
 
 # Standard errors on the subject-level means, based on an asymptotic Gaussian approx 
 # (these may be inflated for small n)
-# these can be pretty-printed but when accessed are a vector ordered as 
-# though the betas matrix were read out row-wise
-# eg param 1 intercept, param 2 intercept, param 1 covariate 1, param 2 covariate 1...
-
-# here they match ground truth:
-# cov1 (2nd row) is significant for temperature beta
-# & cov2 (3rd row) is significant for learning rate alpha
-errs = emerrors(fit; reg_names=["Intercept", "Covariate1", "Covariate2"], param_names=["SoftmaxTemp", "LearnRate"])
-
+# returns an EMErrors structure containing standard errors (ses), p-values, and covmtx.
+errs = emerrors(fit)
 
 # another way to get a p value for a covariate, by omitting it from the model and regressing
 # this seems to work better when full=false
@@ -128,34 +120,32 @@ errs = emerrors(fit; reg_names=["Intercept", "Covariate1", "Covariate2"], param_
 X2 = ones(NS);
 startbetas2 = [0. 0.];
 startsigma2 = [5., 1];
-model2 = EMModel(data, subs, X2, 2, qlik)
-fit2 = em(model2; startbetas=startbetas2, startsigma=startsigma2, emtol=1e-5, full=full);
+model2 = EMModel(data, subs, X2, 2, qlik; reg_names=["Intercept"], param_names=["Temp", "LR"])
+fit2 = em(model2; startbetas=startbetas2, startsigma=startsigma2, emtol=emtol, full=full);
 
-display(lm(@formula(beta~cov+cov2),DataFrame(beta=fit2.x[:,1],cov=cov,cov2=cov2)))
-display(lm(@formula(alpha~cov+cov2),DataFrame(alpha=fit2.x[:,2],cov=cov,cov2=cov2)))
-# again the first covariate is significant for beta and the second for alpha
+display(lm(@formula(temp~cov+cov2),DataFrame(temp=fit2.x[:,1],cov=cov,cov2=cov2)))
+display(lm(@formula(lr~cov+cov2),DataFrame(lr=fit2.x[:,2],cov=cov,cov2=cov2)))
+# again the first covariate is significant for temp and the second for lr
 
 ## model selection/comparison/scoring
 
 # Laplace approximation to the aggregate log marginal likelihood of the whole dataset
 # marginalized over the individual params
-ll1 = lml(fit)
-println("Integrated Log Marginal Likelihood (LML): ", ll1)
+lml(fit)
 
 # to compare these between models you need to correct for the group level free parameters
 # either aic or bic (this is Quentin Huys' IBIC or IAIC, i.e. the subject level
 # params are marginalized by laplace approx, and aggregated, and the group level
 # params are corrected by AIC or BIC)
 
-println("iBIC: ", ibic(fit, NS*NT))
-println("iAIC: ", iaic(fit))
+ibic(fit, NS*NT)
+iaic(fit)
 
 # or by computing unbiased per subject marginal likelihoods via cross validation.
 # you can do paired t tests on these between models
 # these are also appropriate for SPM_BMS etc
 liks = loocv(fit; emtol=emtol, full=full)
-println("LOOCV sum: ", sum(liks))
-
+sum(liks)
 # note that iaic does an excellent job of predicting the aggregate held out likelihood
 # but importantly these are per subject scores that you can compare in paired tests
 # across models as per Stephan et al. random effects model comparison
