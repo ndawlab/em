@@ -3,8 +3,8 @@ using LinearAlgebra
 using DataFrames
 
 """
-    EMModel(data::DataFrame, subs, X, nparam, likfun)
-    EMModel(data::DataFrame, subs, X, likfun)
+    EMModel(data::DataFrame, subs, X, nparam, likfun; reg_names=nothing, param_names=nothing)
+    EMModel(data::DataFrame, subs, X, likfun; reg_names=nothing, param_names=nothing)
 
 Structure to hold inputs and dimensions needed to fit a hierarchical model using Expectation-Maximization (EM).
 
@@ -16,8 +16,8 @@ Structure to hold inputs and dimensions needed to fit a hierarchical model using
 - `nsub::Int`: The number of subjects (computed automatically).
 - `nreg::Int`: The number of regressors (computed automatically).
 - `likfun::Function`: The subject-level likelihood function.
-- `reg_names::Union{Vector{String}, Nothing}`: Names of the regressors (used for printing).
-- `param_names::Union{Vector{String}, Nothing}`: Names of the parameters (used for printing).
+- `reg_names::Union{Vector{String}, Nothing}`: Optional vector of custom regressor names for output formatting.
+- `param_names::Union{Vector{String}, Nothing}`: Optional vector of custom parameter names for output formatting.
 """
 struct EMModel
     data::DataFrame
@@ -163,7 +163,7 @@ function Base.show(io::IO, mime::MIME"text/plain", fit::EMFit)
 end
 
 """
-    EMErrors(ses, pvalues, covmtx, fit, reg_names, param_names)
+    EMErrors(ses, pvalues, covmtx, fit)
 
 Represents post-estimation standard errors, p-values, and covariances of the group-level parameters.
 

@@ -1,6 +1,11 @@
 # julia EM model fitting, Nathaniel Daw 8/2019
 # example likelihood functions
 
+"""
+    qlik(params, data)
+
+Negative log-likelihood function for a basic Rescorla-Wagner Q-learning model.
+"""
 function qlik(params,data)
 	# basic rescorla wagner learning
 	beta = params[1]
@@ -34,6 +39,11 @@ function qlik(params,data)
 	return -lik
 end
 
+"""
+    jianlik(params, data)
+
+Negative log-likelihood function for a hybrid learning model (Li et al., Nat Neurosci 2011).
+"""
 function jianlik(params,data)
 	# this is a simplified form of the hybrid model from Li et al, Nat Neuro 2011
 	# for comparison with qlik above
@@ -63,6 +73,11 @@ function jianlik(params,data)
 	return -lik
 end
 
+"""
+    seqlik(params, data)
+
+Negative log-likelihood function for a two-step decision task model (Gillan et al., eLife 2015).
+"""
 function seqlik(params,data)
 	# this is more or less the likelihood function for the two-step decision task from Gillan et al., eLife 2015
 
@@ -116,6 +131,11 @@ end
 ####
 #### simulate a dataset corresponding to the above 3 likelihood functions
 
+"""
+    simq(params, ntrials)
+
+Simulate choices and rewards for a Rescorla-Wagner Q-learning agent.
+"""
 function simq(params, ntrials)
 	beta = params[1]
 	#lr = 1/(1+exp(-params[2]))
@@ -138,6 +158,11 @@ function simq(params, ntrials)
 	return (c,r)
 end
 
+"""
+    simseq(params, ntrials)
+
+Simulate choices, states, and rewards for a two-step decision task agent.
+"""
 function simseq(params, ntrials)
 	beta1m = params[1]
 	beta1t0 = params[2]
@@ -185,6 +210,11 @@ function simseq(params, ntrials)
 	return (c1,s,c2,r)
 end
 
+"""
+    simjian(params, ntrials)
+
+Simulate choices and rewards for a hybrid learning agent.
+"""
 function simjian(params, ntrials)
 	beta = 2 * params[1]
 	nu = 0.5 + 0.5 * erf(params[2] / sqrt(2))

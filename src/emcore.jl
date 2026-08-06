@@ -1,6 +1,6 @@
 # julia EM model fitting, Nathaniel Daw 12/2021
 
-#### basic fitting routines
+# Fit a model using EM
 """
     em(model::EMModel; nparam=nothing, startbetas=nothing, startsigma=nothing, emtol=1e-3, startx=[], maxiter=100, quiet=10, full=false)
 
@@ -37,8 +37,6 @@ betas, sigma, x, l, h = fit
 
 Backward-compatible positional arguments version of `em`.
 """
-
-# Fit a model using EM
 function em(model::EMModel; nparam::Union{Int,Nothing}=nothing, startbetas=nothing, startsigma=nothing, emtol=1e-3, startx=[], maxiter=100, quiet=10, full=false)
     # Infer nparam if model.nparam == 0
     if model.nparam == 0
@@ -313,7 +311,7 @@ function emcovmtx(fit::EMFit)
 end
 
 """
-    emerrors(fit::EMFit; reg_names=nothing, param_names=nothing)
+    emerrors(fit::EMFit)
 
 Compute approximate standard errors, p-values, and covariance matrix for the coefficients of a fitted model. This is the primary, recommended API.
 
@@ -383,11 +381,33 @@ function lml(fit::EMFit)
 end
 
 
+"""
+    ibic(fit::EMFit, ndata)
+
+Compute the Integrated Bayesian Information Criterion (iBIC) for a fitted model.
+
+---
+
+    ibic(x, l, h, betas, sigma, ndata)
+
+Backward-compatible positional arguments version of `ibic`.
+"""
 function ibic(fit::EMFit, ndata)
     return lml(fit) + length(packparams(fit.betas, fit.sigma)) / 2 * log(ndata)
 end
 
 
+"""
+    iaic(fit::EMFit)
+
+Compute the Integrated Akaike Information Criterion (iAIC) for a fitted model.
+
+---
+
+    iaic(x, l, h, betas, sigma)
+
+Backward-compatible positional arguments version of `iaic`.
+"""
 function iaic(fit::EMFit)
     return lml(fit) + length(packparams(fit.betas, fit.sigma))
 end
