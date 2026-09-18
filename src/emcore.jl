@@ -156,7 +156,9 @@ function mstep!(f::EMFit)
     is_diagonal = (typeof(f.sigma) <: Diagonal)
 
     proj = I - m.X * inv(m.X' * m.X) * m.X'
-    newsigma = f.x' * proj * f.x / m.nsub + dropdims(mean(f.h, dims=3), dims=3)
+    # REML-equivalent dof correction (Helwig notes eq. for Sigma-hat): divide by
+    # nsub - nreg rather than nsub, since nreg dof are used up estimating betas
+    newsigma = (f.x' * proj * f.x + dropdims(sum(f.h, dims=3), dims=3)) / (m.nsub - m.nreg)
 
     if (det(newsigma) < 0)
         println("Warning: sigma has negative determinant")
@@ -344,8 +346,9 @@ function emerrors(fit::EMFit)
 
     ses = sqrt.([diag(covmtx)[i] .< 0 ? NaN : diag(covmtx)[i] for i in 1:length(diag(covmtx))])
 
-    # dof from helwig notes
-    pvalues = 2 * ccdf.(TDist(m.nparam * (m.nsub - m.nreg - 1)), abs.(vec(fit.betas')) ./ ses)
+    # dof from helwig notes: t_{n-p-1}, i.e. nsub - nreg here (nreg already includes
+    # the intercept column)
+    pvalues = 2 * ccdf.(TDist(m.nsub - m.nreg), abs.(vec(fit.betas')) ./ ses)
 
     return EMErrors(ses, pvalues, covmtx, fit)
 end
