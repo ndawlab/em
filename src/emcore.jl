@@ -361,7 +361,9 @@ end
 """
     lml(fit::EMFit)
 
-Compute the Laplace approximation to the log-marginal likelihood of the dataset for a fitted model. This is the primary, recommended API.
+Compute the Laplace approximation to the negative integrated log-likelihood of the dataset for a fitted model, i.e. -log p(data | betas, sigma), marginalizing over subject-level parameters via a per-subject Laplace approximation. This is the primary, recommended API.
+
+Follows the same negative-log-likelihood convention as the per-subject `fit.l`: lower values indicate a better fit. `ibic` and `iaic` add their complexity penalties directly to this value.
 This marginalizes over the subject-level parameters but note that it is conditional on (not corrected for overfitting due to) the estimated group-level parameters.
 
 ---
