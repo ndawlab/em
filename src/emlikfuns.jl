@@ -190,7 +190,7 @@ function simseq(params, ntrials)
 			Qd[prevc] += ps
 		end
     
-		cp = exp.(beta2*Qd)
+		cp = exp.(Qd)
 		cp = cp / sum(cp)
 		c1[i] = (rand() > cp[1]) + 1
 		s[i] = (rand() > ( c1[i] == 1 ? .7 : .3  )) + 2
