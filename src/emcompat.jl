@@ -1,13 +1,13 @@
 # wrappers for old positional arguments interface
 
-function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=10, full=false)
+function em(data,subs,X,betas,sigma::Vector,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=10, full=false, skewcorrect=false, skewcorrect_maxcorr=1.0)
     model = EMModel(data, subs, X, size(betas, 2), likfun)
-    return em(model; startbetas=betas, startsigma=sigma, emtol=emtol, startx=startx, maxiter=maxiter, quiet=quiet, full=full)
+    return em(model; startbetas=betas, startsigma=sigma, emtol=emtol, startx=startx, maxiter=maxiter, quiet=quiet, full=full, skewcorrect=skewcorrect, skewcorrect_maxcorr=skewcorrect_maxcorr)
 end
 
-function em(data,subs,X,betas,sigma,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=10, full=false)
+function em(data,subs,X,betas,sigma,likfun; emtol=1e-3, startx = [], maxiter=100, quiet=10, full=false, skewcorrect=false, skewcorrect_maxcorr=1.0)
     model = EMModel(data, subs, X, size(betas, 2), likfun)
-    return em(model; startbetas=betas, startsigma=sigma, emtol=emtol, startx=startx, maxiter=maxiter, quiet=quiet, full=full)
+    return em(model; startbetas=betas, startsigma=sigma, emtol=emtol, startx=startx, maxiter=maxiter, quiet=quiet, full=full, skewcorrect=skewcorrect, skewcorrect_maxcorr=skewcorrect_maxcorr)
 end
 
 function emerrors(x,X,h,betas,sigma; reg_names=nothing, param_names=nothing)
