@@ -1,4 +1,4 @@
-# julia EM model fitting example, Nathaniel Daw 6/2026
+# julia EM model fitting example, Nathaniel Daw 9/2026
 
 ####### TO RUN MULTITHREADED YOU MUST SET ENVIRONMENT VARIABLE JULIA_NUM_THREADS
 ####### BEFORE STARTING JULIA OR JUPYTER-NOTEBOOK
@@ -109,9 +109,23 @@ model = EMModel(data, subs, X, 2, qlik; reg_names=["Intercept", "Cov1", "Cov2"],
 fit = em(model; startbetas=startbetas, startsigma=startsigma, emtol=emtol, full=full)
 
 # Standard errors on the subject-level means, based on an asymptotic Gaussian approx 
-# (these may be inflated for small n)
+# 
 # returns an EMErrors structure containing standard errors (ses), p-values, and covmtx.
 errs = emerrors(fit)
+
+# One issue is that the Laplace approximation can be poor when the subject-level posterior
+# is skewed, which can affect parameters like LR boundaries.
+# One specific problem in practice in q learning is when there is a real effect of a covariate
+# on a beta, it tends to bleed into a false effect on LR, (eg on average, the null cov effect on LR
+# is slightly inflated.)
+#
+# A more accurate approach is to fit the model with a skewness correction to the Laplace
+# approximation, which takes about 3x longer but improves calibration.
+
+# (It doesnt make much difference in this seed.)
+
+@time fitskew = em(model; startbetas=startbetas, startsigma=startsigma, emtol=emtol, full=full, skewcorrect=true)
+@time errs = emerrors(fitskew)
 
 # another way to get a p value for a covariate, by omitting it from the model and regressing
 # this seems to work better when full=false
@@ -134,15 +148,24 @@ display(lm(@formula(lr~cov+cov2),DataFrame(lr=fit2.x[:,2],cov=cov,cov2=cov2)))
 lml(fit)
 
 # to compare these between models you need to correct for the group level free parameters
-# either aic or bic (this is Quentin Huys' IBIC or IAIC, i.e. the subject level
-# params are marginalized by laplace approx, and aggregated, and the group level
-# params are corrected by AIC or BIC)
+# either aic or bic (this is Quentin Huys' IBIC or alteranatives IAIC or ILaplace, i.e. the 
+# subject-level params are marginalized by laplace approx, and aggregated, and the group- 
+# level params are in turn corrected by AIC, BIC, or a second laplace approximation)
 
+# ibic defaults to using the number of subjects for the BIC's ndata, which is
+# what actually governs the growth of the group-level Fisher information in
+# this model (see emcovmtx). Pass ndata explicitly (eg nsub*ntrials, as below)
+# to reproduce Huys et al 2011's original iBIC convention instead, or for
+# comparability with prior analyses that used it.
+
+ibic(fit)
 ibic(fit, NS*NT)
 iaic(fit)
+ilaplace(fit)
 
-# or by computing unbiased per subject marginal likelihoods via cross validation.
-# you can do paired t tests on these between models
+# you can also account for top-level parameters by computing unbiased per subject 
+# marginal likelihoods via cross validation.
+# you can then do paired t tests on these between models
 # these are also appropriate for SPM_BMS etc
 liks = loocv(fit; emtol=emtol, full=full)
 sum(liks)

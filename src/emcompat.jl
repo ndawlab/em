@@ -40,12 +40,20 @@ function lml(x,l,h)
 	return lml(dummy_fit)
 end
 
-function ibic(x,l,h,betas,sigma,ndata)
+function ibic(x,l,h,betas,sigma,ndata=size(x,1))
 	nparam = size(x, 2)
 	nsub = size(x, 1)
 	dummy_model = EMModel(DataFrame(), 1:nsub, zeros(nsub, size(betas, 1)), nparam, () -> ())
 	dummy_fit = EMFit(betas, sigma, x, l, h, dummy_model)
 	return ibic(dummy_fit, ndata)
+end
+
+function ilaplace(x,l,h,betas,sigma,X)
+	nparam = size(x, 2)
+	nsub = size(x, 1)
+	dummy_model = EMModel(DataFrame(), 1:nsub, X, nparam, () -> ())
+	dummy_fit = EMFit(betas, sigma, x, l, h, dummy_model)
+	return ilaplace(dummy_fit)
 end
 
 function iaic(x,l,h,betas,sigma)
@@ -57,10 +65,10 @@ function iaic(x,l,h,betas,sigma)
 end
 
 
-function loocv(data,subs,startx,X,betas,sigma,likfun; emtol=1e-3, full=false, maxiter=100)
+function loocv(data,subs,startx,X,betas,sigma,likfun; emtol=1e-3, full=false, maxiter=100, skewcorrect=false, skewcorrect_maxcorr=1.0)
 	nsub = size(X,1)
 	nparam = size(startx,2)
 	dummy_model = EMModel(data, subs, X, nparam, likfun)
 	dummy_fit = EMFit(betas, sigma, startx, zeros(nsub), zeros(nparam, nparam, nsub), dummy_model)
-	return loocv(dummy_fit; emtol=emtol, full=full, maxiter=maxiter)
+	return loocv(dummy_fit; emtol=emtol, full=full, maxiter=maxiter, skewcorrect=skewcorrect, skewcorrect_maxcorr=skewcorrect_maxcorr)
 end

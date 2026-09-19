@@ -10,7 +10,7 @@ using Statistics          # for mean
 using Distributions		  # for tDist
 using ADTypes             # for autoforwarddiff
 
-export em,emerrors,lml,ibic,iaic,loocv,qlik,jianlik,seqlik,simq,simseq,simjian,EMModel,EMFit,EMErrors
+export em,emerrors,lml,ibic,iaic,ilaplace,loocv,qlik,jianlik,seqlik,simq,simseq,simjian,EMModel,EMFit,EMErrors
 
 include("emstructs.jl")
 include("emcore.jl")
