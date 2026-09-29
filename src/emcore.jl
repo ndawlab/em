@@ -222,8 +222,9 @@ function estep!(f::EMFit)
 
     Threads.@threads for i = 1:m.nsub
         sub = m.subs[i]
+        subdata = view(m.data, m.data.sub .== sub, :)
 
-        fitfun = (params) -> gaussianprior(params, view(mus, i, :), inv_sigma, logdet_sigma, view(m.data, m.data.sub .== sub, :), m.likfun)
+        fitfun = (params) -> gaussianprior(params, view(mus, i, :), inv_sigma, logdet_sigma, subdata, m.likfun)
 
         x, l, H, fellback, _ = subject_laplace_fit(fitfun, f.x[i, :], inv_sigma)
         fellback && Threads.atomic_add!(nfallback, 1)
@@ -251,7 +252,8 @@ function estep_skewcorrect!(f::EMFit; maxcorr=1.0)
 
     Threads.@threads for i = 1:m.nsub
         sub = m.subs[i]
-        fitfun = (params) -> gaussianprior(params, view(mus, i, :), inv_sigma, logdet_sigma, view(m.data, m.data.sub .== sub, :), m.likfun)
+        subdata = view(m.data, m.data.sub .== sub, :)
+        fitfun = (params) -> gaussianprior(params, view(mus, i, :), inv_sigma, logdet_sigma, subdata, m.likfun)
 
         x, l, H, fellback_h, fellback_s = subject_laplace_fit(fitfun, f.x[i, :], inv_sigma; skewcorrect=true, maxcorr=maxcorr)
         fellback_h && Threads.atomic_add!(nfallback_hessian, 1)

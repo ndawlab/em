@@ -227,7 +227,7 @@ function simjian(params, ntrials)
 
 	for i = 1:ntrials
     
-		ps = exp(beta*Q)
+		ps = exp.(beta*Q)
 		ps = ps / sum(ps)
 		c[i] = (rand() > ps[1]) + 1
 			
