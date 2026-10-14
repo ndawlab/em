@@ -2,7 +2,12 @@
 
 function optimizesubject(likfun, startx)
 	#a = optimize(likfun, startx, NewtonTrustRegion(); autodiff=:forward)
-	a = optimize(likfun, startx, LBFGS(); autodiff=AutoForwardDiff())
+	# g_tol is looser than Optim's default (1e-8), which is far tighter than EM needs.
+	# f_abstol (in nats, so independent of dataset size) stops LBFGS once the objective
+	# has stalled for several iterations in a row, even if the gradient doesn't vanish
+	# (e.g. likelihoods that are only piecewise smooth). Requiring successive stalls
+	# avoids stopping early after a single tiny step on a flat stretch.
+	a = optimize(likfun, startx, LBFGS(), Optim.Options(g_tol=1e-4, f_abstol=1e-5, successive_f_tol=3); autodiff=AutoForwardDiff())
 
 	return(a.minimum,a.minimizer)
 end
