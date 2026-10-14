@@ -107,7 +107,10 @@ function em(model::EMModel; nparam::Union{Int,Nothing}=nothing, startbetas=nothi
         newparams = packparams(fit.betas, fit.sigma)
         iter += 1
 
-        done = ((maximum(abs.((newparams - oldparams) ./ oldparams)) < emtol) | (iter > maxiter))
+        # relative change, but absolute for parameters near zero (|x| < 1),
+        # so group-level parameters near 0 can still converge
+        change = abs.(newparams - oldparams) ./ max.(abs.(oldparams), 1.0)
+        done = ((maximum(change) < emtol) | (iter > maxiter))
         if ((quiet > 0) && (done || (iter % quiet == 0)))
             if isdefined(Main, :IJulia) && Main.IJulia.inited
                 Main.IJulia.clear_output()
@@ -120,8 +123,8 @@ function em(model::EMModel; nparam::Union{Int,Nothing}=nothing, startbetas=nothi
                 println("sigma: ", round.(fit.sigma, digits=2))
             end
             println("free energy: ", round(freeenergy(fit), digits=6))
-            println("change: ", round.(abs.(newparams - oldparams) ./ oldparams, digits=6))
-            println("max: ", round.(maximum(abs.((newparams - oldparams) ./ oldparams)), digits=6))
+            println("change: ", round.(change, digits=6))
+            println("max: ", round.(maximum(change), digits=6))
         end
 
         if done
